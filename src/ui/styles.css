@@ -2864,7 +2864,7 @@ input[type="range"]::-moz-range-thumb {
 .s-guitar { min-width: 0; }
 .guitar-instrument { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
 .guitar-instrument p { margin: 0; line-height: 1.5; }
-.guitar-canvas { position: relative; height: clamp(330px, 55vh, 620px); }
+.guitar-canvas { position: relative; height: clamp(340px, 43vw, 570px); }
 .guitar-canvas canvas { width: 100%; height: 100%; touch-action: none; }
 .guitar-controls { display: flex; flex-wrap: wrap; gap: 16px; }
 .guitar-controls button { min-height: 44px; padding: 8px 20px; }
@@ -2872,9 +2872,9 @@ input[type="range"]::-moz-range-thumb {
 
 /* Guitar: the instrument, editors and optional singer all flow inside screen bodies. */
 .guitar-workspace { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.guitar-performance { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; min-width: 0; }
 .guitar-status { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px 24px; }
 .guitar-chord-name { color: var(--green); font-size: 28px; }
-.guitar-canvas { height: clamp(340px, 43vw, 570px); }
 .guitar-editors { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
 .guitar-editor-body { padding: 20px; display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .guitar-editor-body p { margin: 0; line-height: 1.5; }
@@ -2907,15 +2907,22 @@ input[type="range"]::-moz-range-thumb {
 .guitar-song-controls { display: flex; flex-wrap: wrap; gap: 16px; }
 .guitar-song-controls label { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .guitar-song-controls select { max-width: 100%; }
-.guitar-singer-view { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.guitar-singer-view { display: grid; grid-template-columns: minmax(0, 1fr); }
 .guitar-singer-face { min-width: 0; height: 360px; }
 .guitar-singer-face > .anatomy { position: relative; inset: auto; width: 100%; height: 100%; }
 .guitar-singer-score { display: flex; flex-direction: column; gap: 16px; min-width: 0; padding: 20px; }
-.guitar-singer-score p { line-height: 1.6; }
-.guitar-piano-roll { height: 210px; }
+.guitar-singer-score p { margin: 0; line-height: 1.6; }
+.guitar-piano-roll { height: 180px; }
 .guitar-piano-roll > canvas { height: 100%; }
+@media (min-width: 1100px) {
+  .guitar-performance.with-singer { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+  .guitar-performance.with-singer .guitar-canvas { height: clamp(340px, 32vw, 460px); }
+}
+@media (min-width: 801px) and (max-width: 1099px) {
+  .guitar-singer-view { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
 @media (max-width: 800px) {
-  .guitar-editors, .guitar-singer-view { grid-template-columns: minmax(0, 1fr); }
+  .guitar-editors { grid-template-columns: minmax(0, 1fr); }
   .guitar-editor-body { padding: 14px; }
 }
 @media (max-width: 599px) {

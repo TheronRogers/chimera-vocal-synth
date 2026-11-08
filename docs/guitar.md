@@ -19,8 +19,9 @@ The optional singer shares its timeline and output. Sing mode remains voice-only
   Pointer cancellation, lost capture, blur, and page hiding release transient contacts.
 - The drawings contain a thumb and four articulated fingers on each hand. The fretting
   hand follows the sounding chord; the picking hand follows audio-clock strum telemetry.
-  On phones, a portrait view keeps the full instrument visible; all controls remain in
-  ordinary document flow, below the instrument.
+  The guitar faces the viewer as a right-handed player's instrument, with the neck on the
+  right. Longer fretting reaches draw in front, with bent fingertips clear of other fingers.
+  On phones, a neck-up portrait view keeps the full instrument visible.
 
 ## Accompaniment
 
@@ -32,6 +33,8 @@ Tempo, rhythm, and progression edits take effect on the next start. Live chord c
 and strums are immediate; the next scheduled event restores the progression's chord.
 
 “With singer” exposes the existing face, lyrics, piano roll, body presets, and demo selector.
+The singer sits beside the guitar on desktop; narrow screens stack the guitar and singer
+above the chord and progression editors.
 “Made of air” and “Twinkle, twinkle” each load an authored, editable arrangement. The singer's
 0.35-second musical lead-in is preserved. Both parts use the selected tempo, and the
 progression repeats or truncates to the melody's duration. It then stops scheduling strokes,

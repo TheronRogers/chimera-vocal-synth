@@ -70,6 +70,7 @@ export function GuitarPanel() {
   const end=(e:React.PointerEvent<HTMLElement>)=>mute(`p${e.pointerId}`,null);
   const choose=(frets:Frets)=>{g.setChord(fingerChord(frets));void ready();};
   return <div className="guitar-workspace">
+    <div className={`guitar-performance${g.singer?" with-singer":""}`}>
     <Screen title="Acoustic guitar" sub="Six strings · two hands" className="s-guitar">
       <div className="guitar-instrument">
         <div className="guitar-status" role="status">
@@ -97,6 +98,13 @@ export function GuitarPanel() {
         {(startError||g.error)&&<p role="alert">{startError||g.error}</p>}
       </div>
     </Screen>
+    {g.singer&&<Screen title="Singer" sub={demo??g.song} className="s-guitar-singer">
+      <div className="guitar-singer-view">
+        <div className="guitar-singer-face"><AnatomyView info={singInfo} overlay={singWords}/></div>
+        <div className="guitar-singer-score"><div className="guitar-piano-roll"><PianoRoll/></div><p>{DEMO_SONGS.find(s=>s.name===g.song)?.lyrics}</p></div>
+      </div>
+    </Screen>}
+    </div>
     <div className="guitar-editors">
       <Screen title="Chords" sub="Shape the fretting hand" className="s-guitar-chords">
         <div className="guitar-editor-body">
@@ -159,11 +167,5 @@ export function GuitarPanel() {
         </div>
       </Screen>
     </div>
-    {g.singer&&<Screen title="Singer" sub={demo??g.song} className="s-guitar-singer">
-      <div className="guitar-singer-view">
-        <div className="guitar-singer-face"><AnatomyView info={singInfo} overlay={singWords}/></div>
-        <div className="guitar-singer-score"><div className="guitar-piano-roll"><PianoRoll/></div><p>{DEMO_SONGS.find(s=>s.name===g.song)?.lyrics}</p></div>
-      </div>
-    </Screen>}
   </div>;
 }

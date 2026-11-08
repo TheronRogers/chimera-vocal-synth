@@ -4,7 +4,7 @@
  * Usage: bun tools/e2e.ts [url] [outdir]
  */
 import { chromium } from "playwright-core";
-import { guitarCamera } from "../src/ui/render/guitar.ts";
+import { guitarScreenPoint } from "../src/ui/render/guitar.ts";
 import { mkdirSync } from "node:fs";
 
 const url = process.argv[2] ?? "http://127.0.0.1:5318/";
@@ -216,8 +216,11 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
   if((await state())?.rms!==0)errors.push(`[${tag}-guitar] Stop all left guitar sounding`);
   const canvas=page.locator('.guitar-canvas canvas');
   await canvas.scrollIntoViewIfNeeded();
-  const b=(await canvas.boundingBox())!, c=guitarCamera(b.width,b.height);
-  const point=(i:number,id:number)=>({x:b.x+c.x+(c.portrait?540-(240+i*13):813)*c.scale,y:b.y+c.y+(c.portrait?813:240+i*13)*c.scale,id});
+  const b=(await canvas.boundingBox())!;
+  const point=(i:number,id:number)=>{
+    const [x,y]=guitarScreenPoint(b.width,b.height,813,240+i*13);
+    return {x:b.x+x,y:b.y+y,id};
+  };
   const p=point(0,1);
   await page.mouse.move(p.x,p.y);await page.mouse.down();
   await page.mouse.move(p.x+30,p.y+45,{steps:10});await page.waitForTimeout(100);
@@ -255,6 +258,16 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
   await page.getByRole('spinbutton',{name:'Guitar tempo',exact:true}).fill('120');
   await page.getByRole('button',{name:'Stop accompaniment',exact:true}).click();
   await page.getByRole('checkbox',{name:'With singer',exact:true}).check();
+  const instrument=(await page.locator('.s-guitar').boundingBox())!;
+  const singer=(await page.locator('.s-guitar-singer').boundingBox())!;
+  const editors=(await page.locator('.guitar-editors').boundingBox())!;
+  if(viewport.width>=1100) {
+    if(Math.abs(instrument.y-singer.y)>1||singer.x<instrument.x+instrument.width)
+      errors.push(`[${tag}-guitar] singer is not beside the guitar`);
+  } else if(singer.y<instrument.y+instrument.height)
+    errors.push(`[${tag}-guitar] stacked singer overlaps the guitar`);
+  if(editors.y<Math.max(instrument.y+instrument.height,singer.y+singer.height))
+    errors.push(`[${tag}-guitar] editors precede or overlap the performance`);
   for(const name of ['Made of air','Twinkle, twinkle']) {
     await page.getByRole('combobox',{name:'Guitar singer song',exact:true}).selectOption(name);
     await page.getByRole('button',{name:'Play accompaniment',exact:true}).click();

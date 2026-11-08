@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { wasmModule } from "./harness.ts";
 import { CHORDS, DEFAULT_PATTERN, DEFAULT_PROGRESSION, fingerChord, planGuitar, type GuitarEvent } from "../src/guitar/model.ts";
 import { GUITAR_LAYOUT_VERSION, GUITAR_TELE_LEN, readGuitarTelemetry, writeGuitarEvents } from "../src/wasm/guitar-wire.ts";
-import { guitarCamera, muteStringAt } from "../src/ui/render/guitar.ts";
+import { guitarCamera, guitarScreenPoint, muteStringAt, TUNERS, NUT, BRIDGE, STRING_TOP, STRING_GAP, frettingHandPose, handFingers } from "../src/ui/render/guitar.ts";
 
 test("six-string guitar score and human mix match native audio byte for byte", () => {
   const native=Bun.spawnSync(["cargo","run","-q","--release","-p","chimera-wasm","--example","render_guitar"]);
@@ -71,14 +71,57 @@ test("custom hand assignments keep four fretting fingers and explicit excess con
   expect(fingerChord([2,4,4,3,2,2]).barre?.fret).toBe(2);
 });
 
-test("mute hit testing identifies the same string through desktop and portrait cameras",()=>{
+test("right-handed front view keeps mute contacts aligned after mirroring and phone rotation",()=>{
   for(const [w,h] of [[1200,570],[340,540]]) {
     const c=guitarCamera(w,h);
+    const neck=guitarScreenPoint(w,h,NUT,STRING_TOP), bridge=guitarScreenPoint(w,h,BRIDGE,STRING_TOP);
+    if(c.portrait)expect(neck[1]).toBeLessThan(bridge[1]);
+    else expect(neck[0]).toBeGreaterThan(bridge[0]);
     for(let i=0;i<6;i++) {
-      const x=c.x+(c.portrait?540-(240+i*13):813)*c.scale;
+      const x=c.x+(c.portrait?240+i*13:1000-813)*c.scale;
       const y=c.y+(c.portrait?813:240+i*13)*c.scale;
+      expect(guitarScreenPoint(w,h,813,240+i*13)).toEqual([x,y]);
       expect(muteStringAt(w,h,x,y)).toBe(i);
     }
     expect(muteStringAt(w,h,0,0)).toBe(null);
+  }
+});
+
+test("bass tuner posts run E A D from the nut outward without crossed strings",()=>{
+  const bass=TUNERS.slice(0,3),treble=TUNERS.slice(3);
+  expect(bass.map(t=>t.post[0])).toEqual([...treble.map(t=>t.post[0])].reverse());
+  for(let i=0;i<2;i++) {
+    expect(bass[i].post[0]).toBeGreaterThan(bass[i+1].post[0]);
+    expect(treble[i].post[0]).toBeLessThan(treble[i+1].post[0]);
+  }
+  for(const {post,key} of TUNERS)expect(post[0]).toBe(key[0]);
+  // At every shared x, the six routes must retain their string order.
+  for(let x=56;x<=NUT;x++) {
+    const ys=TUNERS.flatMap(({post:[px,py]},i)=>x<px?[]:[py+(STRING_TOP+i*STRING_GAP-py)*(x-px)/(NUT-px)]);
+    for(let i=1;i<ys.length;i++)expect(ys[i]).toBeGreaterThanOrEqual(ys[i-1]);
+  }
+});
+
+test("long fretting reaches paint on top while every preset fingertip reaches its string unobstructed",()=>{
+  for(const chord of CHORDS) {
+    const p=frettingHandPose(chord.frets), fingers=handFingers(p.x,p.y,p.tips,false,p.barreFinger);
+    expect(fingers).toHaveLength(5);
+    for(let i=1;i<fingers.length;i++)expect(fingers[i].reach).toBeGreaterThanOrEqual(fingers[i-1].reach);
+    for(const finger of fingers) {
+      if(finger.finger===0||!chord.fingers?.includes(finger.finger))continue;
+      const tip=finger.points.at(-1)!;
+      const strings=chord.fingers.flatMap((f,i)=>f===finger.finger?[i]:[]);
+      expect(strings.map(i=>STRING_TOP+i*STRING_GAP)).toContain(tip[1]);
+      for(const other of fingers) {
+        if(other===finger)continue;
+        for(let i=1;i<other.points.length;i++) {
+          const [ax,ay]=other.points[i-1], [bx,by]=other.points[i];
+          const dx=bx-ax,dy=by-ay;
+          const t=Math.max(0,Math.min(1,((tip[0]-ax)*dx+(tip[1]-ay)*dy)/(dx*dx+dy*dy)));
+          const distance=Math.hypot(tip[0]-ax-t*dx,tip[1]-ay-t*dy);
+          expect(distance,`${chord.name}: finger ${finger.finger} ends on finger ${other.finger}`).toBeGreaterThan(other.finger===0?7.5:6.5);
+        }
+      }
+    }
   }
 });

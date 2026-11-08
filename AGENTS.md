@@ -45,6 +45,8 @@ and the CLI) under a React UI. See the README.
 - **The wasm loads before the UI.** A module that calls the engine at import must not be reachable
   from `src/main.tsx`'s static imports. Check: `bun tools/e2e.ts` against `bun run preview`.
 - **DOM content flows in `.screen-body`, never absolutely positioned.** Check: `bun run lint:layout`.
+- **Guitar camera changes must preserve touch targeting and readable labels.** Check the
+  desktop/portrait camera tests and preview e2e's mute contacts and guitar/singer layout.
 - **Nothing copyrighted goes in git.** `public/shows/` is gitignored; never ship CSD audio or
   anything derived from it.
 - **Voice tuning follows `docs/hill-climb/README.md`** and never edits its judges.
