@@ -28,6 +28,11 @@ The optional singer shares its timeline and output. Sing mode remains voice-only
   one index barre across all six strings, bent at the knuckle with continuous flat distal pads. A two-bone
   shoulder/elbow solver follows the wrist with fixed 290/240 mm arm lengths. The elbow
   pole follows the metacarpal axis to limit wrist bend as the hand moves up the neck.
+- Both hands use the same articulated carpal, metacarpal and phalange renderer and mirrored
+  anatomical proportions. The strumming thumb opposes the curled index finger around a
+  triangular pick; the other fingers curl naturally. Its elbow rests beside the guitar's
+  upper bout, with the wrist aligned toward the soundhole. Audio-clock strokes drive wrist
+  motion while the grip and bone lengths stay fixed.
 - Live grips take 100 ms on the audio clock; live strokes wait for the grip. The display
   interpolates fixed-length bone directions with clearance lift. Scheduled grips settle at
   their score deadline. Picking motion follows audio-clock strum telemetry.
@@ -44,8 +49,13 @@ Tempo, rhythm, and progression edits take effect on the next start. Live chord c
 and strums are immediate; the next scheduled event restores the progression's chord.
 
 “With singer” exposes the existing face, lyrics, piano roll, body presets, and demo selector.
-The singer sits beside the guitar on desktop; narrow screens stack the guitar and singer
-above the chord and progression editors.
+With the singer enabled, the animated head, torso, arms and guitar share one orbitable 3D
+performer. The instrument sits lower on the torso with its neck angled upward; both arms
+solve to the string contacts without changing bone lengths. The vocal-tract detail view and
+vocal piano roll stay beside the performer on desktop, stacking below it on narrow screens.
+Chord, string, mix and accompaniment controls remain below the performance.
+Each currently sung syllable appears beside the 3D performer's lips, following the same
+voice clock as the vocal track. Held vowels retain their parent syllable; stopping clears it.
 “Made of air” and “Twinkle, twinkle” each load an authored, editable arrangement. The singer's
 0.35-second musical lead-in is preserved. Both parts use the selected tempo, and the
 progression repeats or truncates to the melody's duration. It then stops scheduling strokes,

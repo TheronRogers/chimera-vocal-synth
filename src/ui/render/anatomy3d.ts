@@ -755,6 +755,12 @@ export class Anatomy3D {
     };
   }
 
+  /** Lip position after the head's nod and its parent performer's scene transform. */
+  mouthWorld(model: VoiceModel, f: HumanFrame, a: HumanArtic): THREE.Vector3 {
+    const lips = faceHandles(model, f, a).find(h => h.id === "lips")!.pos;
+    return new THREE.Vector3(lips.x, lips.y, 0).applyMatrix4(this.beams.group.matrixWorld);
+  }
+
   // ------------------------------------------------------------------ one frame
   update(model: VoiceModel, f: HumanFrame, a: HumanArtic, tele: TelemetryMessage | null, view: ViewFlags, dt: number): void {
     this.clock += dt;

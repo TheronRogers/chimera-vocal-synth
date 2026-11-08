@@ -71,14 +71,14 @@ export function GuitarPanel() {
   const choose=(frets:Frets)=>{g.setChord(fingerChord(frets));void ready();};
   return <div className="guitar-workspace">
     <div className={`guitar-performance${g.singer?" with-singer":""}`}>
-    <Screen title="Acoustic guitar" sub="Six strings · two hands" className="s-guitar">
+    <Screen title={g.singer?"Performer":"Acoustic guitar"} sub={g.singer?"One voice · six strings":"Six strings · two hands"} className="s-guitar">
       <div className="guitar-instrument">
         <div className="guitar-status" role="status">
           <span className="guitar-chord-name">{shown.name}</span>
           <span>{tele?.playing?`Bar ${Math.floor(beat/4)+1} · beat ${Math.floor(beat%4)+1}`:"Ready to play"}</span>
           <span>{held.length?`${held.length} string${held.length===1?"":"s"} muted`:"Touch holds a string quiet"}</span>
         </div>
-        <GuitarView3D chord={g.chord} onEngage={engage} onRelease={id=>mute(id,null)}/>
+        <GuitarView3D chord={g.chord} singer={g.singer} onEngage={engage} onRelease={id=>mute(id,null)}/>
         <div className="guitar-controls">
           <Chip tone="slot2" toggle={false} onClick={()=>void strum(1)}>Strum down ↓</Chip>
           <Chip tone="slot2" toggle={false} onClick={()=>void strum(-1)}>Strum up ↑</Chip>
@@ -89,10 +89,10 @@ export function GuitarPanel() {
         {(startError||g.error)&&<p role="alert">{startError||g.error}</p>}
       </div>
     </Screen>
-    {g.singer&&<Screen title="Singer" sub={demo??g.song} className="s-guitar-singer">
+    {g.singer&&<Screen title="Singer details" sub={demo??g.song} className="s-guitar-singer">
       <div className="guitar-singer-view">
         <div className="guitar-singer-face"><AnatomyView info={singInfo} overlay={singWords}/></div>
-        <div className="guitar-singer-score"><div className="guitar-piano-roll"><PianoRoll/></div><p>{DEMO_SONGS.find(s=>s.name===g.song)?.lyrics}</p></div>
+        <div className="guitar-singer-score"><h3 className="guitar-track-title">Vocal track</h3><div className="guitar-piano-roll"><PianoRoll/></div><p>{DEMO_SONGS.find(s=>s.name===g.song)?.lyrics}</p></div>
       </div>
     </Screen>}
     </div>

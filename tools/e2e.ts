@@ -201,11 +201,19 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
   page.on("pageerror", e => errors.push(`[${tag}-guitar] ${e.message}`));
   await page.goto(url, { waitUntil: "networkidle" });
   await page.getByRole("radio", { name: "Guitar", exact: true }).click();
-  const state = () => page.evaluate(() => {
+  const state = (paired = false) => page.evaluate(async (paired) => {
     // @ts-expect-error debug handle
-    const e = window.__chimeraEngine, t = e?.latestGuitar;
+    const e = window.__chimeraEngine;
+    // The worklet posts guitar then voice as separate messages. Don't compare a new guitar
+    // frame with the previous voice frame while the matching message is still queued.
+    if(paired) {
+      const deadline=performance.now()+1000;
+      while(e?.latestGuitar&&e?.latest&&Math.abs(e.latestGuitar.clock-e.latest.t.clock)>1e-9&&performance.now()<deadline)
+        await new Promise(resolve=>setTimeout(resolve,0));
+    }
+    const t = e?.latestGuitar;
     return t ? { rms:t.rms, playing:t.playing, step:t.step, playhead:t.playhead, clock:t.clock, voiceClock:e.latest?.t.clock, voiceRms:e.latest?.t.outRms, load:e.load, strings:t.strings.map((s:any)=>({fret:s.fret,muted:s.muted,envelope:s.envelope,rms:s.rms})) } : null;
-  });
+  }, paired);
   await page.locator('.guitar-instrument p').first().click();
   await page.keyboard.press("Space");
   await page.waitForTimeout(350);
@@ -267,14 +275,22 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
   await page.getByRole('spinbutton',{name:'Guitar tempo',exact:true}).fill('120');
   await page.getByRole('button',{name:'Stop accompaniment',exact:true}).click();
   await page.getByRole('checkbox',{name:'With singer',exact:true}).check();
+  await page.waitForFunction(()=>document.querySelector<HTMLCanvasElement>('.guitar-canvas canvas')?.dataset.performer==='true');
+  const framing=await canvas.evaluate(c=>({tip:JSON.parse((c as HTMLCanvasElement).dataset.headstock!),w:c.clientWidth,h:c.clientHeight}));
+  if(framing.tip[0]<0||framing.tip[0]>framing.w||framing.tip[1]<0||framing.tip[1]>framing.h)
+    errors.push(`[${tag}-guitar] combined performer clips the headstock`);
+  if(!await page.getByRole('img',{name:/3D singer and guitarist as one performer/}).count())
+    errors.push(`[${tag}-guitar] combined performer is missing from the guitar scene`);
+  if(!await page.getByRole('heading',{name:'Vocal track',exact:true}).count()||!await page.locator('.s-guitar-singer .anatomy canvas').count())
+    errors.push(`[${tag}-guitar] combined performer lost the vocal track or singer details`);
   const instrument=(await page.locator('.s-guitar').boundingBox())!;
   const singer=(await page.locator('.s-guitar-singer').boundingBox())!;
   const editors=(await page.locator('.guitar-editors').boundingBox())!;
   if(viewport.width>=1100) {
     if(Math.abs(instrument.y-singer.y)>1||singer.x<instrument.x+instrument.width)
-      errors.push(`[${tag}-guitar] singer is not beside the guitar`);
+      errors.push(`[${tag}-guitar] singer details are not beside the performer`);
   } else if(singer.y<instrument.y+instrument.height)
-    errors.push(`[${tag}-guitar] stacked singer overlaps the guitar`);
+    errors.push(`[${tag}-guitar] stacked singer details overlap the performer`);
   if(editors.y<Math.max(instrument.y+instrument.height,singer.y+singer.height))
     errors.push(`[${tag}-guitar] editors precede or overlap the performance`);
   for(const name of ['Made of air','Twinkle, twinkle']) {
@@ -283,15 +299,17 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
     await page.waitForTimeout(2200);
     const duet=await state();
     if(!(duet?.playing&&duet.voiceRms>1e-6&&duet.rms>.00001))errors.push(`[${tag}-guitar] singer and guitar did not sound together: ${name} ${JSON.stringify(duet)}`);
+    await page.waitForFunction(()=>!!document.querySelector<HTMLCanvasElement>('.guitar-canvas canvas')?.dataset.syllable);
     const clocks=[];
-    for(let i=0;i<12;i++){await page.waitForTimeout(100);clocks.push(await state());}
+    for(let i=0;i<12;i++){await page.waitForTimeout(100);clocks.push(await state(true));}
     const loads=clocks.map(s=>s?.load??1),mean=loads.reduce((a,b)=>a+b,0)/loads.length;
     if(mean>=.7)errors.push(`[${tag}-guitar] combined load ${(mean*100).toFixed(1)}% exceeds 70%`);
     const offsets=clocks.map(s=>s!.voiceClock-s!.clock);
-    if(Math.max(...offsets)-Math.min(...offsets)>.004)errors.push(`[${tag}-guitar] singer/guitar clocks drifted`);
+    if(Math.max(...offsets)-Math.min(...offsets)>.004||offsets.some(x=>Math.abs(x)>.004))errors.push(`[${tag}-guitar] singer/guitar clocks drifted`);
     logs.push(`[${tag}] ${name} combined load ${(mean*100).toFixed(1)}%, levels ${duet?.rms}/${duet?.voiceRms}`);
     await page.screenshot({path:`${outDir}/${tag}-guitar-singer-${name.startsWith('Made')?'air':'twinkle'}.png`,fullPage:true});
     await page.getByRole('button',{name:'Stop accompaniment',exact:true}).click();
+    await page.waitForFunction(()=>!document.querySelector<HTMLCanvasElement>('.guitar-canvas canvas')?.dataset.syllable);
   }
   await page.getByRole('button',{name:'Play accompaniment',exact:true}).click();await page.waitForTimeout(600);
   await page.getByRole('combobox',{name:'Guitar singer voice',exact:true}).selectOption('female');await page.waitForTimeout(150);
