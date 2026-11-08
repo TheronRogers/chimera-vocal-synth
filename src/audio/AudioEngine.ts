@@ -109,7 +109,7 @@ export class AudioEngine {
     node.port.onmessage = (e: MessageEvent<FromWorklet>) => {
       const m = e.data;
       if (m.type === "gtelemetry") {
-        this.latestGuitar = m.t; this.latest = null; this.latestCreature = null; this.load = m.load;
+        this.latestGuitar = m.t; this.load = m.load;
       } else if (m.type === "telemetry") {
         this.latest = m;
         this.latestAt = performance.now();
@@ -144,9 +144,9 @@ export class AudioEngine {
   }
 
   /** Send a gestural plan (times relative to now). Returns the request id. */
-  schedule(plan: { gestures: import("../wasm/types.ts").Gesture[]; segments: import("../wasm/types.ts").PlannedSegment[]; end: number }, replace = true): number {
+  schedule(plan: { gestures: import("../wasm/types.ts").Gesture[]; segments: import("../wasm/types.ts").PlannedSegment[]; end: number; guitar?: import("../guitar/model.ts").GuitarScore }, replace = true): number {
     const id = ++this.speakId;
-    this.send({ type: "schedule", gestures: plan.gestures, segments: plan.segments, end: plan.end, id, replace });
+    this.send({ type: "schedule", gestures: plan.gestures, segments: plan.segments, end: plan.end, guitar: plan.guitar, id, replace });
     return id;
   }
 

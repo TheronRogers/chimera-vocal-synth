@@ -1,152 +1,169 @@
 import { useEffect, useRef, useState } from "react";
 import { engine } from "../../audio/AudioEngine.ts";
+import { CHORDS, STRING_NAMES, chordByName, fingerChord, type Frets, type StrumDirection } from "../../guitar/model.ts";
+import type { GuitarTelemetry } from "../../worklet/protocol.ts";
 import { useStore } from "../store.ts";
+import { applyChord, playGuitar, stopGuitar, tickGuitar, useGuitar } from "../guitar.ts";
+import { DEMO_SONGS, useSing } from "../singing.ts";
+import { PRESETS, presetOf } from "../body.ts";
 import { usePhosphor } from "../usePhosphor.ts";
-import { V } from "../colors.ts";
-import { Screen } from "./Screen.tsx";
+import { drawGuitar, muteStringAt } from "../render/guitar.ts";
+import { AnatomyView } from "./AnatomyView.tsx";
+import { singInfo, singWords } from "./SingPanel.tsx";
+import { PianoRoll } from "./PianoRoll.tsx";
+import { Chip, Screen } from "./Screen.tsx";
 
-/** Pointer ownership is per finger, so a touch on the fret never steals the pluck. */
+/** Contacts own a string until release. Pointer movement deliberately has no handler. */
 export function GuitarPanel() {
-  const [fretted, setFretted] = useState(false);
-  const [status, setStatus] = useState("Open E2 · fingers released");
-  const fretSources = useRef(new Map<string, number>());
-  const pointers = useRef(new Map<number, "fret" | "pluck">());
-  const epoch = useRef(0);
-  const pullTarget = useRef({ x: 0.8, displacement: 0 });
-  const started = useStore(s => s.started);
-  const error = useStore(s => s.startError);
-  const pressure = () => Math.max(0, ...fretSources.current.values());
-  const fret = (source: string, on: boolean, amount = 1) => {
-    if (on) fretSources.current.set(source, amount); else fretSources.current.delete(source);
-    setFretted(pressure() > 0.99); engine.guitar(1, pressure());
-  };
-  const clear = () => {
-    epoch.current++; pointers.current.clear(); fretSources.current.clear();
-    setFretted(false); engine.guitar(1, 0); engine.guitar(3);
-  };
-  const ready = async () => {
-    const current = epoch.current;
+  const g=useGuitar();
+  const body=useStore(s=>s.body);
+  const started=useStore(s=>s.started);
+  const startError=useStore(s=>s.startError);
+  const demo=useSing(s=>s.demo);
+  const [tele,setTele]=useState<GuitarTelemetry|null>(null);
+  const [held,setHeld]=useState<number[]>([]);
+  const contacts=useRef(new Map<string,number>());
+  const epoch=useRef(0);
+  const ready=async()=>{
+    const current=epoch.current;
     await useStore.getState().start();
-    return current === epoch.current && useStore.getState().mode === "guitar" && useStore.getState().started;
-  };
-  const pluck = async () => { if (await ready()) engine.guitar(4); };
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLElement && (e.target.matches("input,textarea,select") || e.target.isContentEditable)) return;
-      if (e.code === "Space" && e.target instanceof HTMLElement && e.target.closest("button")) return;
-      if (e.code !== "KeyF" && e.code !== "Space") return;
-      e.preventDefault(); if (e.repeat) return;
-      if (e.code === "KeyF") {
-        fret("key", true);
-        void ready().then(ok => { if (ok) engine.guitar(1, pressure()); });
-      } else void pluck();
-    };
-    const up = (e: KeyboardEvent) => { if (e.code === "KeyF") fret("key", false); };
-    const visibility = () => { if (document.hidden) clear(); };
-    window.addEventListener("keydown", down); window.addEventListener("keyup", up);
-    window.addEventListener("blur", clear); document.addEventListener("visibilitychange", visibility);
-    const timer = setInterval(() => {
-      const t = engine.latestGuitar;
-      setStatus(t ? `${t.fret > 0.99 ? "Fretted F2" : t.fret > 0.01 ? "Light fret touch · damping" : "Open E2"} · ${t.held ? "Plucking finger in contact" : "Plucking finger released"}` : "Open E2 · fingers released");
-    }, 100);
-    return () => {
-      clear(); clearInterval(timer); window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up); window.removeEventListener("blur", clear);
-      document.removeEventListener("visibilitychange", visibility);
-    };
-  }, []);
-  const canvas = usePhosphor(({ctx, w, h}) => {
-    const left = 35, span = w-70, y = h*0.43;
-    const t = engine.latestGuitar;
-    const line = (points: number[][], color: string, width = 1.2) => {
-      ctx.strokeStyle=color; ctx.lineWidth=width; ctx.beginPath();
-      points.forEach(([x,y],i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y)); ctx.stroke();
-    };
-    ctx.font = '13px Hershey, monospace';
-    ctx.fillStyle=V.blue; ctx.fillText("NUT",left,y-55); ctx.fillText("BRIDGE",w-85,y-55);
-    line([[left,y-35],[w-35,y-35],[w-35,y+35],[left,y+35],[left,y-35]], V.blueDim);
-    line([[left,y-40],[left,y+40]], V.blue,3);
-    line([[w-35,y-40],[w-35,y+40]], V.blue,3);
-    const fx = left+span*14/256;
-    line([[fx,y-32],[fx,y+32]],V.blue,3);
-    ctx.fillText("FRET 1",left,y+60);
-    // All displacement is in metres; display gain is intentionally explicit below.
-    if (t) {
-      const env = Math.min(70,t.envelope*18000);
-      ctx.globalAlpha=0.18;
-      line(Array.from({length:65},(_,i)=>[left+span*i/64,y+Math.sin(Math.PI*i/64)*env]),V.amber);
-      line(Array.from({length:65},(_,i)=>[left+span*i/64,y-Math.sin(Math.PI*i/64)*env]),V.amber);
-      ctx.globalAlpha=1;
+    const ok=current===epoch.current&&useStore.getState().mode==="guitar"&&useStore.getState().started;
+    if(ok) {
+      const s=useGuitar.getState();
+      engine.guitar(6,s.guitarLevel,s.singerLevel);
+      if(!s.playing)applyChord();
     }
-    line(Array.from({length:257},(_,i)=>[left+span*i/256,y+(t?.displacement[i] ?? 0)*18000]),V.amber,1.8);
-    const hand = (x: number, tipY: number, below: boolean, color: string) => {
-      const s = below ? 1 : -1;
-      // Index finger joins a palm with curled remaining fingers and a thumb.
-      line([[x-12,tipY+s*95],[x-12,tipY+s*12],[x-8,tipY+s*3],[x,tipY],
-        [x+9,tipY+s*7],[x+11,tipY+s*48],[x+23,tipY+s*38],
-        [x+34,tipY+s*42],[x+37,tipY+s*63],[x+46,tipY+s*50],
-        [x+58,tipY+s*56],[x+62,tipY+s*93],[x+50,tipY+s*117],
-        [x+3,tipY+s*117],[x-23,tipY+s*91],[x-28,tipY+s*63],
-        [x-20,tipY+s*59],[x-12,tipY+s*75]],V.blue);
-      ctx.strokeStyle=color; ctx.beginPath(); ctx.arc(x,tipY,11,0,Math.PI*2);ctx.stroke();
+    return ok;
+  };
+  const mute=(source:string,index:number|null)=>{
+    if(index===null)contacts.current.delete(source);else contacts.current.set(source,index);
+    const active=[...new Set(contacts.current.values())];
+    setHeld(active);
+    for(let i=0;i<6;i++)engine.guitar(2,i,active.includes(i)?1:0);
+  };
+  const clearContacts=()=>{
+    epoch.current++;contacts.current.clear();setHeld([]);
+    for(let i=0;i<6;i++)engine.guitar(2,i,0);
+  };
+  const engage=(source:string,index:number)=>{
+    mute(source,index);
+    void ready().then(ok=>{if(ok&&contacts.current.has(source))mute(source,index);});
+  };
+  const strum=async(direction:StrumDirection)=>{if(await ready())engine.guitar(4,direction,.8);};
+  const stop=()=>{clearContacts();stopGuitar();};
+  useEffect(()=>{
+    const key=(e:KeyboardEvent)=>{
+      if(e.code!=="Space"||e.repeat)return;
+      if(e.target instanceof HTMLElement&&(e.target.closest("input,textarea,select,button")||e.target.isContentEditable))return;
+      e.preventDefault();void strum(e.shiftKey?-1:1);
     };
-    hand(fx, y+22*(1-(t?.fret ?? (fretted ? 1 : 0))),true,V.green);
-    const px=left+span*(t?.position ?? 0.8);
-    hand(px,y+(t?.held ? t.pull*18000 : -22),false,V.pink);
-    ctx.fillStyle=V.amber; ctx.fillText("VIBRATION 18 PX/MM · ENVELOPE",left,h-30);
-  });
-  const move = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const role=pointers.current.get(e.pointerId);
-    if (!role) return;
-    const r=e.currentTarget.getBoundingClientRect();
-    if (role === "fret") {
-      const amount=Math.max(0,Math.min(1,1-(e.clientY-r.top-r.height*0.43-12)/45));
-      fret(`pointer${e.pointerId}`,true,amount); return;
-    }
-    const x=(e.clientX-r.left-35)/(r.width-70);
-    const displacement=(e.clientY-r.top-r.height*0.43)/18000;
-    pullTarget.current={x,displacement};
-    engine.guitar(2,x,displacement,1);
-  };
-  const end = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const role=pointers.current.get(e.pointerId); pointers.current.delete(e.pointerId);
-    if (role === "fret") fret(`pointer${e.pointerId}`,false);
-    if (role === "pluck") engine.guitar(3);
-  };
-  return <Screen title="Guitar" sub="One string · two fingers" className="s-guitar">
-    <div className="guitar-instrument">
-      <p role="status">{status}</p>
-      <div className="guitar-canvas">
-        <canvas ref={canvas} aria-label="String and two hands: touch the fret at the left, or drag the plucking finger on the right"
-          onPointerDown={e => {
-            const r=e.currentTarget.getBoundingClientRect();
-            const role=e.clientX-r.left < 35+(r.width-70)*0.15 ? "fret" : "pluck";
-            if ([...pointers.current.values()].includes(role)) return;
-            e.currentTarget.setPointerCapture(e.pointerId); pointers.current.set(e.pointerId,role);
-            if (role === "fret") fret(`pointer${e.pointerId}`,true);
-            move(e);
-            const id=e.pointerId;
-            void ready().then(ok => {
-              if (!ok || !pointers.current.has(id)) return;
-              engine.guitar(1,pressure());
-              if (role === "pluck") {
-                const {x,displacement}=pullTarget.current; engine.guitar(2,x,displacement,1);
-              }
-            });
-          }} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}/>
+    const visibility=()=>{if(document.hidden)clearContacts();};
+    const timer=setInterval(()=>{tickGuitar();setTele(engine.latestGuitar);},80);
+    window.addEventListener("keydown",key);window.addEventListener("blur",clearContacts);document.addEventListener("visibilitychange",visibility);
+    return()=>{clearContacts();stopGuitar();clearInterval(timer);window.removeEventListener("keydown",key);window.removeEventListener("blur",clearContacts);document.removeEventListener("visibilitychange",visibility);};
+  },[]);
+  useEffect(()=>{clearContacts();},[body]);
+  const canvas=usePhosphor(({ctx,w,h})=>drawGuitar(ctx,w,h,g.chord,engine.latestGuitar));
+  const shown=tele?.strings.length?fingerChord(tele.strings.map(s=>s.fret) as Frets):g.chord;
+  const beat=tele?.playing?Math.max(0,tele.playhead)*tele.bpm/60:0;
+  const updateStep=(i:number,patch:Partial<(typeof g.progression)[number]>)=>useGuitar.setState({progression:g.progression.map((s,k)=>k===i?{...s,...patch}:s)});
+  const end=(e:React.PointerEvent<HTMLElement>)=>mute(`p${e.pointerId}`,null);
+  const choose=(frets:Frets)=>{g.setChord(fingerChord(frets));void ready();};
+  return <div className="guitar-workspace">
+    <Screen title="Acoustic guitar" sub="Six strings · two hands" className="s-guitar">
+      <div className="guitar-instrument">
+        <div className="guitar-status" role="status">
+          <span className="guitar-chord-name">{shown.name}</span>
+          <span>{tele?.playing?`Bar ${Math.floor(beat/4)+1} · beat ${Math.floor(beat%4)+1}`:"Ready to play"}</span>
+          <span>{held.length?`${held.length} string${held.length===1?"":"s"} muted`:"Touch holds a string quiet"}</span>
+        </div>
+        <div className="guitar-canvas">
+          <canvas ref={canvas} aria-label="Six-string acoustic guitar with two five-finger hands. Hold a string near the picking hand to mute it."
+            onPointerDown={e=>{
+              const r=e.currentTarget.getBoundingClientRect();
+              const index=muteStringAt(r.width,r.height,e.clientX-r.left,e.clientY-r.top);
+              if(index===null)return;
+              e.currentTarget.setPointerCapture(e.pointerId);
+              engage(`p${e.pointerId}`,index);
+            }} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}/>
+        </div>
+        <div className="guitar-controls">
+          <Chip tone="slot2" toggle={false} onClick={()=>void strum(1)}>Strum down ↓</Chip>
+          <Chip tone="slot2" toggle={false} onClick={()=>void strum(-1)}>Strum up ↑</Chip>
+          <Chip toggle={false} onClick={stop}>Stop all</Chip>
+        </div>
+        <p className="dim">Space strums down · Shift+Space strums up. Hold a string or its Mute control to damp it; release stays quiet.</p>
+        {!started&&<button className="primary" onClick={()=>void ready()}>Start guitar audio</button>}
+        {(startError||g.error)&&<p role="alert">{startError||g.error}</p>}
       </div>
-      <div className="guitar-controls">
-        <button className={`chip slot0${fretted ? " on" : ""}`} aria-pressed={fretted} onClick={() => {
-          const on=!fretSources.current.has("button"); fret("button",on);
-          void ready().then(ok => { if (ok) engine.guitar(1,pressure()); });
-        }}>Hold fret</button>
-        <button className="chip slot2" onClick={() => void pluck()}>Pluck</button>
-        <button className="chip" onClick={() => { clear(); engine.guitar(5); }}>Mute</button>
-      </div>
-      <p>Hold F to fret. Pull the right finger away from the string, then release. Space plucks.</p>
-      <p>Touch: hold left and pull right. Lower the left finger for a light damping touch. 648 mm · E2 82.41 Hz · bare pickup</p>
-      {!started && <button className="primary" onClick={() => void ready()}>Start guitar audio</button>}
-      {error && <p role="alert">{error}</p>}
+    </Screen>
+    <div className="guitar-editors">
+      <Screen title="Chords" sub="Shape the fretting hand" className="s-guitar-chords">
+        <div className="guitar-editor-body">
+          <div className="guitar-chord-pads" role="group" aria-label="Chord presets">
+            {CHORDS.map(c=><Chip key={c.name} tone="slot0" on={g.chord.name===c.name} onClick={()=>{g.setChord(c);void ready();}}>{c.name}</Chip>)}
+          </div>
+          <div className="guitar-string-controls" role="group" aria-label="String controls">
+            {STRING_NAMES.map((name,i)=><div className="guitar-string-row" key={name}>
+              <label htmlFor={`guitar-fret-${i}`}>{name}</label>
+              <select id={`guitar-fret-${i}`} aria-label={`${name} fret`} value={g.chord.frets[i]} onChange={e=>{
+                const frets=[...g.chord.frets] as Frets;frets[i]=Number(e.target.value);choose(frets);
+              }}><option value={-1}>× Skip</option><option value={0}>Open</option>{Array.from({length:12},(_,f)=><option key={f+1} value={f+1}>Fret {f+1}</option>)}</select>
+              <Chip toggle={false} aria-label={`Pluck ${name}`} onClick={()=>void ready().then(ok=>{if(ok)engine.guitar(3,i,.8);})}>Pluck</Chip>
+              <Chip className="guitar-hold" tone="slot3" on={held.includes(i)} aria-label={`Hold mute ${name}`}
+                onPointerDown={e=>{e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);engage(`p${e.pointerId}`,i);}}
+                onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}
+                onKeyDown={e=>{if((e.code==="Space"||e.code==="Enter")&&!e.repeat){e.preventDefault();engage(`k${i}`,i);}}}
+                onKeyUp={e=>{if(e.code==="Space"||e.code==="Enter"){e.preventDefault();mute(`k${i}`,null);}}}
+                onBlur={()=>mute(`k${i}`,null)}>Mute</Chip>
+            </div>)}
+          </div>
+          {g.chord.frets.some((f,i)=>f>0&&!g.chord.fingers?.[i])&&<p className="dim">Amber contacts exceed four fretting fingers; the custom chord still plays.</p>}
+          <div className="guitar-mix">
+            <label>Guitar <input aria-label="Guitar level" type="range" min={0} max={1} step={.01} value={g.guitarLevel} onChange={e=>g.setLevels(Number(e.target.value),g.singerLevel)}/></label>
+            <label>Singer <input aria-label="Singer level" type="range" min={0} max={1} step={.01} value={g.singerLevel} onChange={e=>g.setLevels(g.guitarLevel,Number(e.target.value))}/></label>
+          </div>
+        </div>
+      </Screen>
+      <Screen title="Accompaniment" sub="Chords on the audio clock" className="s-guitar-score">
+        <div className="guitar-editor-body">
+          <div className="guitar-transport">
+            <button className="primary" onClick={()=>{
+              if(g.playing)stop();
+              else void playGuitar(()=>useStore.getState().start(),()=>useStore.getState().body,()=>useStore.getState().mode==="guitar"&&useStore.getState().started);
+            }}>{g.starting?"Cancel start":g.playing?"Stop accompaniment":"Play accompaniment"}</button>
+            <label>Tempo <input aria-label="Guitar tempo" type="number" min={40} max={200} value={g.bpm} onChange={e=>{const n=Number(e.target.value);if(Number.isFinite(n))useGuitar.setState({bpm:Math.max(40,Math.min(200,n))});}}/> BPM</label>
+          </div>
+          <div className="guitar-rhythm" role="group" aria-label="Strumming pattern">
+            {g.pattern.map((direction,i)=><button key={i} className={`chip${direction?" on":""}`} aria-label={`Strum step ${i+1}: ${direction===1?"down":direction===-1?"up":"rest"}`} onClick={()=>{
+              const pattern=g.pattern.slice();pattern[i]=direction===1?-1:direction===-1?0:1;useGuitar.setState({pattern});
+            }}><small>{i%2?"&":i/2+1}</small><span>{direction===1?"↓":direction===-1?"↑":"–"}</span></button>)}
+          </div>
+          <ol className="guitar-progression" aria-label="Chord progression">
+            {g.progression.map((s,i)=><li key={i} className={tele?.playing&&tele.step===i?"playing":""}>
+              <span className="dim">{i+1}</span>
+              <select aria-label={`Chord ${i+1}`} value={s.chord.name} onChange={e=>updateStep(i,{chord:e.target.value==="Custom"?{...g.chord,name:"Custom"}:chordByName(e.target.value)})}>
+                {CHORDS.map(c=><option key={c.name}>{c.name}</option>)}<option value="Custom">Custom shape</option>
+              </select>
+              <label><input aria-label={`Chord ${i+1} beats`} type="number" min={1} max={16} value={s.beats} onChange={e=>updateStep(i,{beats:Math.max(1,Math.min(16,Math.round(Number(e.target.value)||1)))})}/> beats</label>
+              <button className="chip" disabled={g.progression.length===1} aria-label={`Remove chord ${i+1}`} onClick={()=>useGuitar.setState({progression:g.progression.filter((_,k)=>i!==k)})}>×</button>
+            </li>)}
+          </ol>
+          <Chip toggle={false} disabled={g.progression.length>=32} onClick={()=>useGuitar.setState({progression:[...g.progression,{chord:g.chord,beats:4}]})}>Add current chord</Chip>
+          <p className="dim">{g.playing?"Tempo, rhythm, and progression edits play on the next start.":g.singer?"The progression follows the song, repeating as needed.":"The progression loops until stopped."}</p>
+          <label className="guitar-singer-toggle"><input type="checkbox" checked={g.singer} onChange={e=>g.setSinger(e.target.checked)}/> With singer</label>
+          {g.singer&&<div className="guitar-song-controls">
+            <label>Song <select aria-label="Guitar singer song" value={g.song} onChange={e=>g.setSong(e.target.value)}>{DEMO_SONGS.map(s=><option key={s.name}>{s.name}</option>)}</select></label>
+            <label>Voice <select aria-label="Guitar singer voice" value={presetOf(body)??"custom"} onChange={e=>useStore.getState().setBody(PRESETS[e.target.value as keyof typeof PRESETS])}>{!presetOf(body)&&<option value="custom" disabled>Blended</option>}<option value="male">Male</option><option value="female">Female</option><option value="child">Child</option></select></label>
+          </div>}
+        </div>
+      </Screen>
     </div>
-  </Screen>;
+    {g.singer&&<Screen title="Singer" sub={demo??g.song} className="s-guitar-singer">
+      <div className="guitar-singer-view">
+        <div className="guitar-singer-face"><AnatomyView info={singInfo} overlay={singWords}/></div>
+        <div className="guitar-singer-score"><div className="guitar-piano-roll"><PianoRoll/></div><p>{DEMO_SONGS.find(s=>s.name===g.song)?.lyrics}</p></div>
+      </div>
+    </Screen>}
+  </div>;
 }

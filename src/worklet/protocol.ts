@@ -14,9 +14,17 @@ export interface PhraseMsg {
 
 export type BodyName = "male" | "female" | "child";
 
-/** Numeric guitar ABI operations: activate, fret, contact, release, pluck, mute. */
-export type GuitarOp = 0 | 1 | 2 | 3 | 4 | 5;
-export interface GuitarTelemetry { clock: number; rms: number; fret: number; held: boolean; position: number; pull: number; envelope: number; displacement: Float32Array }
+/** Guitar ABI v2: activate, string fret, held mute, string pluck, strum, stop, mix. */
+export type GuitarOp = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export interface GuitarStringTelemetry {
+  fret: number; muted: boolean; plucking: boolean; position: number; pull: number;
+  envelope: number; rms: number; displacement: Float32Array;
+}
+export interface GuitarTelemetry {
+  clock: number; rms: number; playing: boolean; step: number; bpm: number; looping: boolean;
+  duration: number; playhead: number; bodyEnvelope: number; direction: number; strumTime: number;
+  eventCount: number; droppedEvents: number; strings: GuitarStringTelemetry[];
+}
 
 export type ToWorklet =
   | { type: "guitar"; op: GuitarOp; a?: number; b?: number; c?: number }
@@ -26,7 +34,7 @@ export type ToWorklet =
   | { type: "gate"; level: number }
   | { type: "telemetry"; enabled: boolean }
   /** gestures planned on the main thread with times relative to "now" (the worklet adds its clock) */
-  | { type: "schedule"; gestures: Gesture[]; segments: PlannedSegment[]; end: number; id: number; replace: boolean; lead?: number }
+  | { type: "schedule"; gestures: Gesture[]; segments: PlannedSegment[]; end: number; id: number; replace: boolean; lead?: number; guitar?: import("../guitar/model.ts").GuitarScore }
   | { type: "stopSpeech" }
   /** switch the active voice: "human" or a creature id */
   | { type: "creature"; id: string; params?: Record<string, number> }

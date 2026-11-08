@@ -234,3 +234,63 @@ describe("keys pressed before the audio has started", () => {
     engineStub.scheduleGestures = sg;
   });
 });
+
+describe("guitar performance startup",()=>{
+  test("stop, mode and body changes cancel a pending start; edits wait for the next start",async()=>{
+    const {playGuitar,stopGuitar,useGuitar}=await import("../src/ui/guitar.ts");
+    const {useStore}=await import("../src/ui/store.ts");
+    const previous=engineStub.schedule as typeof fakeEngine.schedule;
+    const previousGuitar=engineStub.guitar;
+    const mix: number[][]=[];
+    engineStub.guitar=(op:number,a:number,b:number)=>{if(op===6)mix.push([a,b]);};
+    const plans: {guitar?:{bpm:number}}[]=[];
+    engineStub.schedule=(plan: Parameters<typeof fakeEngine.schedule>[0]&{guitar?:{bpm:number}})=>{plans.push(plan);return previous(plan);};
+    try {
+      for(const cancel of [()=>stopGuitar(),()=>useStore.getState().setMode("play"),()=>useStore.getState().setBody({female:1,child:0})]) {
+        useStore.setState({mode:"guitar",started:true});useGuitar.setState({singer:false,bpm:84});
+        let finish!:()=>void;
+        const run=playGuitar(()=>new Promise<void>(resolve=>finish=resolve),()=>MALE,()=>true);
+        expect(useGuitar.getState().starting).toBe(true);
+        cancel();finish();await run;
+        expect(plans).toHaveLength(0);
+        expect(useGuitar.getState().playing).toBe(false);
+      }
+      let finish!:()=>void;
+      const run=playGuitar(()=>new Promise<void>(resolve=>finish=resolve),()=>MALE,()=>true);
+      useGuitar.setState({bpm:120});useGuitar.getState().setLevels(.2,.3);finish();await run;
+      expect(plans.at(-1)?.guitar?.bpm).toBe(84);
+      expect(mix.at(-1)).toEqual([.2,.3]);
+      stopGuitar();
+      await playGuitar(async()=>{},()=>MALE,()=>true);
+      expect(plans.at(-1)?.guitar?.bpm).toBe(120);
+      stopGuitar();
+      await playGuitar(async()=>{},()=>MALE,()=>false);
+      expect(useGuitar.getState().starting).toBe(false);
+      expect(useGuitar.getState().playing).toBe(false);
+      expect(useGuitar.getState().error).toContain("could not start");
+    } finally {stopGuitar();engineStub.schedule=previous;engineStub.guitar=previousGuitar;}
+  });
+  test("song or body changes cancel a singer waiting for the dictionary",async()=>{
+    const {playGuitar,stopGuitar,useGuitar}=await import("../src/ui/guitar.ts");
+    const {useStore}=await import("../src/ui/store.ts");
+    const {g2p}=await import("../src/ui/speech.ts");
+    const load=g2p.load;
+    const previous=engineStub.schedule as typeof fakeEngine.schedule;
+    let scheduled=0;
+    engineStub.schedule=(plan:Parameters<typeof fakeEngine.schedule>[0])=>{scheduled++;return previous(plan);};
+    try {
+      for(const cancel of [()=>useGuitar.getState().setSong("Twinkle, twinkle"),()=>useStore.getState().setBody({female:0,child:1})]) {
+        useStore.setState({mode:"guitar",started:true});useGuitar.setState({singer:true,song:"Made of air"});
+        let finish!:()=>void;
+        g2p.load=()=>new Promise<void>(resolve=>finish=resolve);
+        const run=playGuitar(async()=>{},()=>MALE,()=>true);
+        await new Promise(resolve=>setTimeout(resolve,0));
+        expect(useGuitar.getState().starting).toBe(true);
+        cancel();finish();await run;
+        expect(scheduled).toBe(0);
+        expect(useGuitar.getState().playing).toBe(false);
+        expect(useSing.getState().demo).toBe(null);
+      }
+    } finally {g2p.load=load;stopGuitar();engineStub.schedule=previous;}
+  });
+});

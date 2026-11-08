@@ -59,6 +59,23 @@ describe("worklet ordering", () => {
     block();
     expect(scoreSize()).toBe(0);
     expect(posted.filter((m) => m.type === "error")).toEqual([]);
+
+    // Voice and guitar have different absolute clock origins but one relative song start.
+    const voiceStart=x.engine_clock(h);
+    send({type:"guitar",op:0,a:1});
+    send({type:"schedule",gestures:[{...breath,t0:.35,t1:1}],segments:[],end:1,id:99,replace:true,
+      guitar:{events:[{time:0,frets:[0,2,2,0,0,0],direction:1,strength:.8,step:0}],leadIn:.35,duration:.6,looping:false,bpm:100}});
+    for(let i=0;i<170;i++)block();
+    const t=new Float64Array(x.memory.buffer,x.engine_guitar_telemetry(h),1600);
+    expect(t[10]).toBeCloseTo(.38,8);
+    expect(x.engine_clock(h)-t[0]).toBeCloseTo(voiceStart,8);
+    expect(posted.some(m=>m.type==="gtelemetry")).toBe(true);
+    expect(posted.some(m=>m.type==="telemetry")).toBe(true);
+    send({type:"guitar",op:5});send({type:"stopSpeech"});
+    for(let i=0;i<20;i++)block();
+    expect(new Float64Array(x.memory.buffer,x.engine_guitar_telemetry(h),1600)[2]).toBe(0);
+    expect(scoreSize()).toBe(0);
+    expect(posted.filter(m=>m.type==="error")).toEqual([]);
   });
 });
 

@@ -1,0 +1,101 @@
+import { create } from "zustand";
+import { engine } from "../audio/AudioEngine.ts";
+import { CHORDS, DEFAULT_PATTERN, DEFAULT_PROGRESSION, demoProgression, planGuitar, type Chord, type ProgressionStep, type StrumPattern } from "../guitar/model.ts";
+import { DEMO_SONGS, playDemo, stopSinging, tickSinging, useSing } from "./singing.ts";
+import type { BodyMix } from "./body.ts";
+
+interface GuitarState {
+  chord: Chord;
+  progression: ProgressionStep[];
+  pattern: StrumPattern;
+  bpm: number;
+  singer: boolean;
+  song: string;
+  playing: boolean;
+  starting: boolean;
+  guitarLevel: number;
+  singerLevel: number;
+  error: string | null;
+  setChord: (chord: Chord) => void;
+  setSong: (song: string) => void;
+  setSinger: (on: boolean) => void;
+  setLevels: (guitar: number, singer: number) => void;
+}
+
+/** Session state survives navigation; audio ownership is cleared by stopGuitar. */
+export const useGuitar = create<GuitarState>((set,get) => ({
+  chord: CHORDS.find(c => c.name === "Em")!,
+  progression: DEFAULT_PROGRESSION,
+  pattern: DEFAULT_PATTERN,
+  bpm: 84,
+  singer: false,
+  song: DEMO_SONGS[0].name,
+  playing: false,
+  starting: false,
+  guitarLevel: 0.7,
+  singerLevel: 0.8,
+  error: null,
+  setChord: chord => { set({chord}); applyChord(chord); },
+  setSong: song => {
+    const demo = DEMO_SONGS.find(s => s.name === song);
+    if (!demo) return;
+    stopGuitar();
+    set({ song, bpm:demo.bpm, progression:demoProgression(song) });
+  },
+  setSinger: singer => {
+    stopGuitar();
+    set({ singer });
+    if (singer) get().setSong(get().song);
+  },
+  setLevels: (guitarLevel,singerLevel) => { set({guitarLevel,singerLevel}); engine.guitar(6,guitarLevel,singerLevel); },
+}));
+
+export function applyChord(chord = useGuitar.getState().chord): void {
+  chord.frets.forEach((f,i) => engine.guitar(1,i,f));
+}
+
+let token = 0;
+let observedPlaying = false;
+
+export function stopGuitar(): void {
+  token++;
+  observedPlaying = false;
+  engine.guitar(5);
+  stopSinging();
+  useGuitar.setState({playing:false,starting:false});
+}
+
+export async function playGuitar(ready: () => Promise<void>, body: () => BodyMix, active: () => boolean): Promise<void> {
+  stopGuitar();
+  const run = token;
+  const s = useGuitar.getState();
+  useGuitar.setState({playing:true,starting:true,error:null});
+  try {
+    await ready();
+    if (run !== token) return;
+    if (!active()) throw new Error("Guitar audio could not start.");
+    const live=useGuitar.getState();
+    engine.guitar(6,live.guitarLevel,live.singerLevel);
+    const song = DEMO_SONGS.find(d => d.name === s.song)!;
+    const beats = s.singer ? song.notes.reduce((sum,n) => sum+n[1],0) : undefined;
+    const guitar = planGuitar(s.progression,s.pattern,s.bpm,beats);
+    if (s.singer) {
+      await playDemo(s.song,body(),undefined,{bpm:s.bpm,guitar});
+      if (run !== token) return;
+      if (useSing.getState().demo !== s.song) throw new Error("The singer could not start.");
+    } else engine.schedule({gestures:[],segments:[],end:guitar.leadIn+guitar.duration,guitar});
+    if (run === token) useGuitar.setState({starting:false});
+  } catch (e) {
+    if (run !== token) return;
+    stopGuitar();
+    useGuitar.setState({error:e instanceof Error ? e.message : String(e)});
+  }
+}
+
+export function tickGuitar(): void {
+  tickSinging();
+  const s = useGuitar.getState();
+  if (!s.playing || s.starting) return;
+  if (engine.latestGuitar?.playing) observedPlaying = true;
+  else if (observedPlaying) { observedPlaying = false; useGuitar.setState({playing:false}); }
+}

@@ -7,6 +7,7 @@
  * reports once; the main thread may build a new node, which restarts playback state.
  */
 import { writeGestures, writeSteps, fromUtf8, utf8, CONTROL_KEYS } from "../wasm/wire.ts";
+import { GUITAR_LAYOUT_VERSION, GUITAR_TELE_LEN, readGuitarTelemetry, writeGuitarEvents } from "../wasm/guitar-wire.ts";
 import type { ToWorklet, FromWorklet, TelemetryMessage } from "./protocol.ts";
 import type { BodyMix, CreatureTelemetry } from "../wasm/types.ts";
 
@@ -50,6 +51,7 @@ class ChimeraProcessor extends AudioWorkletProcessor {
   constructor(options: { processorOptions: { module: WebAssembly.Module } }) {
     super();
     this.x = new WebAssembly.Instance(options.processorOptions.module, {}).exports as unknown as Exports;
+    if (this.x.engine_guitar_layout_version() !== GUITAR_LAYOUT_VERSION || this.x.engine_guitar_telemetry_len() !== GUITAR_TELE_LEN) throw new Error("Guitar ABI layout mismatch");
     this.h = this.x.engine_new(sampleRate);
     this.port.onmessage = (e: MessageEvent<ToWorklet>) => {
       if (this.failed) return;
@@ -138,7 +140,13 @@ class ChimeraProcessor extends AudioWorkletProcessor {
         // planning happened on the main thread; the engine shifts the gestures onto its clock
         const n = writeGestures(this.mem, x.engine_records(h), m.gestures, MAX_GESTURES);
         const off = x.engine_schedule(h, n, m.lead ?? 0.03, m.replace ? 1 : 0);
-        if (m.segments.length) this.post({ type: "planned", id: m.id, t0: off, end: m.end + off, segments: m.segments.map((s) => ({ ...s, t0: s.t0 + off, t1: s.t1 + off })) });
+        if (m.guitar) {
+          const score = m.guitar;
+          const count = writeGuitarEvents(this.mem,x.engine_guitar_records(h),score.events);
+          // No render occurs between scheduling the voice and guitar; both receive one lead.
+          x.engine_guitar_schedule(h,count,(m.lead ?? 0.03)+score.leadIn,score.duration,score.looping ? 1 : 0,score.bpm);
+        }
+        if (m.segments.length || m.guitar) this.post({ type: "planned", id: m.id, t0: off, end: m.end + off, segments: m.segments.map((s) => ({ ...s, t0: s.t0 + off, t1: s.t1 + off })) });
         break;
       }
       case "stopSpeech":
@@ -208,9 +216,9 @@ class ChimeraProcessor extends AudioWorkletProcessor {
       try {
         if (this.guitar) {
           const p = this.x.engine_guitar_telemetry(this.h);
-          const b = new Float64Array(this.mem, p, 264);
-          this.post({ type: "gtelemetry", load: this.load, t: { clock: b[0], rms: b[1], fret: b[2], held: !!b[3], position: b[4], pull: b[5], envelope: b[6], displacement: Float32Array.from(b.subarray(7)) } });
-        } else if (this.creature) this.post({ type: "ctelemetry", t: this.creatureTelemetry(this.creature), load: this.load });
+          this.post({ type: "gtelemetry", load: this.load, t: readGuitarTelemetry(this.mem,p) });
+        }
+        if (this.creature) this.post({ type: "ctelemetry", t: this.creatureTelemetry(this.creature), load: this.load });
         else this.post(this.humanTelemetry());
       } catch (err) {
         this.fail(err);

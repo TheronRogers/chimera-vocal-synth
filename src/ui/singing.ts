@@ -240,7 +240,7 @@ engine.onPlanned((m) => {
 });
 
 /** Sing a demo song (after `ready`, e.g. audio startup, resolves; unless stopped meanwhile). */
-export async function playDemo(name: string, body: BodyMix, ready?: () => Promise<void>): Promise<void> {
+export async function playDemo(name: string, body: BodyMix, ready?: () => Promise<void>, options: { bpm?: number; guitar?: import("../guitar/model.ts").GuitarScore } = {}): Promise<void> {
   const song = DEMO_SONGS.find((s) => s.name === name);
   if (!song) return;
   stopSinging();
@@ -257,15 +257,16 @@ export async function playDemo(name: string, body: BodyMix, ready?: () => Promis
   const shift = song.octave[nearestBody(body)] * 12;
   const notes = song.notes.map((n, i) => ({ midi: n[0] + shift, beats: n[1], syl: syl[i % syl.length] }));
   const t0 = 0.35;
-  const plan = planSong(notes, { body, bpm: song.bpm, t0, vibrato: useSing.getState().vibrato });
-  const beat = 60 / song.bpm;
+  const bpm = options.bpm ?? song.bpm;
+  const plan = planSong(notes, { body, bpm, t0, vibrato: useSing.getState().vibrato });
+  const beat = 60 / bpm;
   let t = t0;
   const times = notes.map((n): [number, number] => {
     const a = t;
     t += n.beats * beat;
     return [a, t];
   });
-  const id = engine.schedule({ gestures: plan.gestures, segments: plan.segments, end: plan.end });
+  const id = engine.schedule({ gestures: plan.gestures, segments: plan.segments, end: plan.end, guitar: options.guitar });
   const parent: number[] = [];
   notes.forEach((n, i) => parent.push(n.syl.melisma && i > 0 ? parent[i - 1] : i));
   const shown = parent.map((p) => written(notes[p].syl));
