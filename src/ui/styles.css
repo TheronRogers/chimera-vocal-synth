@@ -2935,3 +2935,6 @@ input[type="range"]::-moz-range-thumb {
   .guitar-progression input[type="number"] { width: 48px; }
   .guitar-singer-face { height: 320px; }
 }
+
+.guitar-view-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.guitar-view-controls label { display: flex; align-items: center; gap: 8px; }

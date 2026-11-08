@@ -7,9 +7,9 @@ for tests and the `chimera` CLI.
 
 ## What it does
 
-- **Guitar**: one physical string, one working fret and two outlined hands. Hold F (or the
-  Hold fret button) while pulling and releasing the right finger; Space plucks. Two touches
-  independently fret and pluck. The Rust string simulation drives both sound and motion.
+- **Guitar**: six physical strings, an inspectable 3D acoustic guitar, articulated hands,
+  chord presets and accompaniment with an optional singer. Space strums; hold a string near
+  the bridge or its Mute button to damp it. Coupled soundboard and cavity motion drives the audio.
 - **Play**: drag the tongue, lips and jaw in a live cutaway of the head; vowel pad, encoders,
   computer keyboard and Web MIDI.
 - **Speak**: English text (CMUdict with a letter-to-sound fallback) or IPA, turned into

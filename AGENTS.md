@@ -47,6 +47,7 @@ and the CLI) under a React UI. See the README.
 - **DOM content flows in `.screen-body`, never absolutely positioned.** Check: `bun run lint:layout`.
 - **Guitar camera changes must preserve touch targeting and readable labels.** Check the
   desktop/portrait camera tests and preview e2e's mute contacts and guitar/singer layout.
+- **Guitar strings share a bridge.** Sleeping strings must wake when the bridge moves. Check `plate_basis_and_reciprocal_bridge_are_live`; otherwise a valid body response can silently omit sympathetic vibration.
 - **Nothing copyrighted goes in git.** `public/shows/` is gitignored; never ship CSD audio or
   anything derived from it.
 - **Voice tuning follows `docs/hill-climb/README.md`** and never edits its judges.

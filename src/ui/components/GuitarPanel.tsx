@@ -6,8 +6,8 @@ import { useStore } from "../store.ts";
 import { applyChord, playGuitar, stopGuitar, tickGuitar, useGuitar } from "../guitar.ts";
 import { DEMO_SONGS, useSing } from "../singing.ts";
 import { PRESETS, presetOf } from "../body.ts";
-import { usePhosphor } from "../usePhosphor.ts";
-import { drawGuitar, muteStringAt } from "../render/guitar.ts";
+import { GuitarView3D } from "./GuitarView3D.tsx";
+
 import { AnatomyView } from "./AnatomyView.tsx";
 import { singInfo, singWords } from "./SingPanel.tsx";
 import { PianoRoll } from "./PianoRoll.tsx";
@@ -63,7 +63,7 @@ export function GuitarPanel() {
     return()=>{clearContacts();stopGuitar();clearInterval(timer);window.removeEventListener("keydown",key);window.removeEventListener("blur",clearContacts);document.removeEventListener("visibilitychange",visibility);};
   },[]);
   useEffect(()=>{clearContacts();},[body]);
-  const canvas=usePhosphor(({ctx,w,h})=>drawGuitar(ctx,w,h,g.chord,engine.latestGuitar));
+
   const shown=tele?.strings.length?fingerChord(tele.strings.map(s=>s.fret) as Frets):g.chord;
   const beat=tele?.playing?Math.max(0,tele.playhead)*tele.bpm/60:0;
   const updateStep=(i:number,patch:Partial<(typeof g.progression)[number]>)=>useGuitar.setState({progression:g.progression.map((s,k)=>k===i?{...s,...patch}:s)});
@@ -78,16 +78,7 @@ export function GuitarPanel() {
           <span>{tele?.playing?`Bar ${Math.floor(beat/4)+1} · beat ${Math.floor(beat%4)+1}`:"Ready to play"}</span>
           <span>{held.length?`${held.length} string${held.length===1?"":"s"} muted`:"Touch holds a string quiet"}</span>
         </div>
-        <div className="guitar-canvas">
-          <canvas ref={canvas} aria-label="Six-string acoustic guitar with two five-finger hands. Hold a string near the picking hand to mute it."
-            onPointerDown={e=>{
-              const r=e.currentTarget.getBoundingClientRect();
-              const index=muteStringAt(r.width,r.height,e.clientX-r.left,e.clientY-r.top);
-              if(index===null)return;
-              e.currentTarget.setPointerCapture(e.pointerId);
-              engage(`p${e.pointerId}`,index);
-            }} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}/>
-        </div>
+        <GuitarView3D chord={g.chord} onEngage={engage} onRelease={id=>mute(id,null)}/>
         <div className="guitar-controls">
           <Chip tone="slot2" toggle={false} onClick={()=>void strum(1)}>Strum down ↓</Chip>
           <Chip tone="slot2" toggle={false} onClick={()=>void strum(-1)}>Strum up ↑</Chip>
@@ -114,8 +105,8 @@ export function GuitarPanel() {
           <div className="guitar-string-controls" role="group" aria-label="String controls">
             {STRING_NAMES.map((name,i)=><div className="guitar-string-row" key={name}>
               <label htmlFor={`guitar-fret-${i}`}>{name}</label>
-              <select id={`guitar-fret-${i}`} aria-label={`${name} fret`} value={g.chord.frets[i]} onChange={e=>{
-                const frets=[...g.chord.frets] as Frets;frets[i]=Number(e.target.value);choose(frets);
+              <select id={`guitar-fret-${i}`} aria-label={`${name} fret`} value={g.draft.frets[i]} onChange={e=>{
+                const frets=[...g.draft.frets] as Frets;frets[i]=Number(e.target.value);choose(frets);
               }}><option value={-1}>× Skip</option><option value={0}>Open</option>{Array.from({length:12},(_,f)=><option key={f+1} value={f+1}>Fret {f+1}</option>)}</select>
               <Chip toggle={false} aria-label={`Pluck ${name}`} onClick={()=>void ready().then(ok=>{if(ok)engine.guitar(3,i,.8);})}>Pluck</Chip>
               <Chip className="guitar-hold" tone="slot3" on={held.includes(i)} aria-label={`Hold mute ${name}`}

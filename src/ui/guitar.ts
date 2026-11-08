@@ -1,3 +1,4 @@
+import { handPlan, packFrets } from "../guitar/physical.ts";
 import { create } from "zustand";
 import { engine } from "../audio/AudioEngine.ts";
 import { CHORDS, DEFAULT_PATTERN, DEFAULT_PROGRESSION, demoProgression, planGuitar, type Chord, type ProgressionStep, type StrumPattern } from "../guitar/model.ts";
@@ -6,6 +7,7 @@ import type { BodyMix } from "./body.ts";
 
 interface GuitarState {
   chord: Chord;
+  draft: Chord;
   progression: ProgressionStep[];
   pattern: StrumPattern;
   bpm: number;
@@ -25,6 +27,7 @@ interface GuitarState {
 /** Session state survives navigation; audio ownership is cleared by stopGuitar. */
 export const useGuitar = create<GuitarState>((set,get) => ({
   chord: CHORDS.find(c => c.name === "Em")!,
+  draft: CHORDS.find(c => c.name === "Em")!,
   progression: DEFAULT_PROGRESSION,
   pattern: DEFAULT_PATTERN,
   bpm: 84,
@@ -35,7 +38,7 @@ export const useGuitar = create<GuitarState>((set,get) => ({
   guitarLevel: 0.7,
   singerLevel: 0.8,
   error: null,
-  setChord: chord => { set({chord}); applyChord(chord); },
+  setChord: chord => { const plan=handPlan(chord);set({draft:chord,error:plan.valid?null:plan.error});if(plan.valid){set({chord});applyChord(chord);} },
   setSong: song => {
     const demo = DEMO_SONGS.find(s => s.name === song);
     if (!demo) return;
@@ -51,7 +54,7 @@ export const useGuitar = create<GuitarState>((set,get) => ({
 }));
 
 export function applyChord(chord = useGuitar.getState().chord): void {
-  chord.frets.forEach((f,i) => engine.guitar(1,i,f));
+  engine.guitar(7,packFrets(chord),1);
 }
 
 let token = 0;
@@ -78,6 +81,7 @@ export async function playGuitar(ready: () => Promise<void>, body: () => BodyMix
     engine.guitar(6,live.guitarLevel,live.singerLevel);
     const song = DEMO_SONGS.find(d => d.name === s.song)!;
     const beats = s.singer ? song.notes.reduce((sum,n) => sum+n[1],0) : undefined;
+    for(const step of s.progression){const pose=handPlan(step.chord);if(!pose.valid)throw new Error(`${step.chord.name}: ${pose.error}`);}
     const guitar = planGuitar(s.progression,s.pattern,s.bpm,beats);
     if (s.singer) {
       await playDemo(s.song,body(),undefined,{bpm:s.bpm,guitar});

@@ -277,7 +277,7 @@ async function main() {
   if (duet) makeDuet(duetDir);
 
   // WebGL through SwiftShader, for the 3D face
-  const browser = await chromium.launch({ headless: true, args: ["--autoplay-policy=no-user-gesture-required", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  const browser = await chromium.launch({ executablePath:process.env.CHIMERA_BROWSER, headless: true, args: ["--autoplay-policy=no-user-gesture-required", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   let errors = 0, warnings = 0, views = 0;
   for (const { w, h } of viewports) {
     const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: 1 });

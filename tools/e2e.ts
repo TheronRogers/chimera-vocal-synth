@@ -4,14 +4,14 @@
  * Usage: bun tools/e2e.ts [url] [outdir]
  */
 import { chromium } from "playwright-core";
-import { guitarScreenPoint } from "../src/ui/render/guitar.ts";
+
 import { mkdirSync } from "node:fs";
 
 const url = process.argv[2] ?? "http://127.0.0.1:5318/";
 const outDir = process.argv[3] ?? "out/e2e";
 mkdirSync(outDir, { recursive: true });
 
-const browser = await chromium.launch({
+const browser = await chromium.launch({ executablePath:process.env.CHIMERA_BROWSER,
   headless: true,
   args: ["--autoplay-policy=no-user-gesture-required", "--use-fake-ui-for-media-stream"],
 });
@@ -217,8 +217,9 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
   const canvas=page.locator('.guitar-canvas canvas');
   await canvas.scrollIntoViewIfNeeded();
   const b=(await canvas.boundingBox())!;
+  const projected=await canvas.evaluate(c=>JSON.parse((c as HTMLCanvasElement).dataset.mutePoints!));
   const point=(i:number,id:number)=>{
-    const [x,y]=guitarScreenPoint(b.width,b.height,813,240+i*13);
+    const [x,y]=projected[i];
     return {x:b.x+x,y:b.y+y,id};
   };
   const p=point(0,1);
@@ -251,6 +252,14 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
   await page.getByRole('button',{name:'Strum up ↑',exact:true}).click();await page.waitForTimeout(180);
   const fretted=await state();
   if(JSON.stringify(fretted?.strings.map((s:any)=>s.fret))!==JSON.stringify([1,3,3,2,1,1]))errors.push(`[${tag}-guitar] barre chord did not reach all strings`);
+  await page.getByLabel('E4 fret',{exact:true}).selectOption('12');await page.waitForTimeout(150);
+  const invalid=await state();
+  if(JSON.stringify(invalid?.strings.map((s:any)=>s.fret))!==JSON.stringify(fretted?.strings.map((s:any)=>s.fret)))errors.push(`[${tag}-guitar] invalid draft changed the applied chord`);
+  if(!await page.getByRole('alert').count())errors.push(`[${tag}-guitar] invalid draft has no explanation`);
+  await page.getByLabel('E4 fret',{exact:true}).selectOption('1');await page.waitForTimeout(150);
+  await page.getByRole('button',{name:'Neck back',exact:true}).click();await page.waitForTimeout(150);
+  await page.screenshot({path:`${outDir}/${tag}-guitar-back.png`,fullPage:true});
+  await page.getByRole('button',{name:'Reset view',exact:true}).click();await page.waitForTimeout(150);
   await page.screenshot({path:`${outDir}/${tag}-guitar.png`,fullPage:true});
   // Standalone transport loops; editing a score does not replace the sounding score.
   await page.getByRole('button',{name:'Play accompaniment',exact:true}).click();await page.waitForTimeout(600);
