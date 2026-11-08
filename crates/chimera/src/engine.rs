@@ -46,6 +46,8 @@ pub struct VoiceInfo {
 
 pub struct Engine {
     pub sample_rate: f64,
+    pub guitar: crate::guitar::GuitarVoice,
+    guitar_active: bool,
     body: BodyMix,
     voice: HumanVoice,
     /// the performer's breath (the voice's own gate also follows the score)
@@ -62,7 +64,7 @@ impl Engine {
     pub fn new(sample_rate: f64) -> Engine {
         crate::init();
         let body = BodyMix::MALE;
-        Engine { sample_rate, body, voice: Self::make_voice(sample_rate, body), gate_level: 0.0, pos: 0, scratch: Vec::with_capacity(MAX_SCHEDULE), beat: BeatPlayer::new(), creature: None }
+        Engine { sample_rate, guitar: crate::guitar::GuitarVoice::new(sample_rate), guitar_active: false, body, voice: Self::make_voice(sample_rate, body), gate_level: 0.0, pos: 0, scratch: Vec::with_capacity(MAX_SCHEDULE), beat: BeatPlayer::new(), creature: None }
     }
 
     fn make_voice(fs: f64, body: BodyMix) -> HumanVoice {
@@ -208,8 +210,20 @@ impl Engine {
         self.voice.clock
     }
 
+    pub fn set_guitar(&mut self, active: bool) {
+        self.guitar.mute();
+        self.guitar_active = active;
+        if active {
+            self.stop_speech();
+            self.stop_call();
+            self.set_beat_playing(false);
+            self.set_gate(0.0);
+        }
+    }
+
     /// Render `out.len()` samples.
     pub fn render(&mut self, out: &mut [f32]) {
+        if self.guitar_active { self.guitar.render(out); return; }
         let mut i = 0;
         while i < out.len() {
             let phase = (self.pos % SUB_BLOCK as u64) as usize;

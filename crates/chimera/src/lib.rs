@@ -4,6 +4,7 @@
 //! transcendental math goes through [`math`] (pure-Rust libm), so native and wasm32 builds
 //! render bit-identical samples. Voices are `Send` and allocate nothing while rendering.
 
+pub mod guitar;
 pub mod math;
 pub mod physics;
 

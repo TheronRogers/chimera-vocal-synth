@@ -12,6 +12,8 @@ import type { VoiceSource } from "../wasm/types.ts";
 type Listener = (t: TelemetryMessage) => void;
 
 export class AudioEngine {
+  latestGuitar: import("../worklet/protocol.ts").GuitarTelemetry | null = null;
+  guitar(op: import("../worklet/protocol.ts").GuitarOp, a = 0, b = 0, c = 0): void { this.send({ type: "guitar", op, a, b, c }); }
   ctx: AudioContext | null = null;
   private node: AudioWorkletNode | null = null;
   analyser: AnalyserNode | null = null;
@@ -106,7 +108,9 @@ export class AudioEngine {
     master.connect(scope);
     node.port.onmessage = (e: MessageEvent<FromWorklet>) => {
       const m = e.data;
-      if (m.type === "telemetry") {
+      if (m.type === "gtelemetry") {
+        this.latestGuitar = m.t; this.latest = null; this.latestCreature = null; this.load = m.load;
+      } else if (m.type === "telemetry") {
         this.latest = m;
         this.latestAt = performance.now();
         this.latestCreature = null;

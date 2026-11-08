@@ -4,10 +4,12 @@ These are what the TypeScript engine computed before it was retired. The generat
 `tools/golden/*.ts`; recover them with `git show fdf5441:tools/golden/<area>.ts`. They ran the
 TypeScript engine that is still in that commit's `src/engine/`. The `golden_*` tests (and
 `engine.rs`) check that the Rust engine reproduces the fixtures. This is how the port was
-verified: numbers to 1e-9 relative, and audio sample for sample.
+verified: numbers to 1e-9 relative, and audio sample for sample. The guitar fixture was
+added later from the Rust string model.
 
 | Fixture | What | Test |
 |---|---|---|
+| `guitar.f32` | Rust string: open/fretted plucks, light contact, pull/release and mute at 44.1/48 kHz | `guitar.rs` |
 | `geometry.json` | grids, area functions, contacts and outlines for 114 postures | `golden_geometry.rs` |
 | `voice.json`, `voice-*.f32` | human-voice scenarios (timed operations) and their samples | `golden_voice.rs` |
 | `planning.json`, `beatbox-bar.f32` | plans, durations, sung notes, beatbox builds, sequencer, one bar | `golden_planning.rs`, `engine.rs` |
@@ -18,7 +20,7 @@ verified: numbers to 1e-9 relative, and audio sample for sample.
 When a test fails after an **intended** change to the sound, the plans or the tract:
 - **These regenerate from the Rust engine** with `CHIMERA_BLESS=1 cargo test --workspace
   --no-fail-fast`, run twice (`engine.rs` reads a fixture `golden_planning` writes): the
-  human-voice audio (`voice-*.f32`, `beatbox-bar.f32`), the plans in `planning.json` (utterances,
+  guitar audio (`guitar.f32`), human-voice audio (`voice-*.f32`, `beatbox-bar.f32`), the plans in `planning.json` (utterances,
   durations, phrases, songs, live notes, beat sounds, the beat player), `geometry.json`, and the
   human airway's cases in `analysis.json`. They are snapshots of this engine now.
 - **The rest** still records the TypeScript engine's behaviour: the beat notation, the phonetics

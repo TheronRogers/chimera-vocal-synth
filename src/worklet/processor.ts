@@ -41,6 +41,7 @@ class ChimeraProcessor extends AudioWorkletProcessor {
   private readonly x: Exports;
   private readonly h: number;
   private failed = false;
+  private guitar = false;
   private telemetryOn = true;
   private blocks = 0;
   private load = 0;
@@ -151,6 +152,10 @@ class ChimeraProcessor extends AudioWorkletProcessor {
         x.engine_set_beat(h, m.steps ? 1 : 0, n, m.bpm ?? NaN, m.swing ?? NaN, m.playing === undefined ? 2 : m.playing ? 1 : 0);
         break;
       }
+      case "guitar":
+        if (m.op === 0) this.guitar = !!m.a;
+        x.engine_guitar(h, m.op, m.a ?? 0, m.b ?? 0, m.c ?? 0);
+        break;
       case "beatHit":
         writeSteps(this.mem, x.engine_records(h), [{ id: m.id, note: m.note, accent: m.accent }]);
         x.engine_beat_hit(h);
@@ -201,7 +206,11 @@ class ChimeraProcessor extends AudioWorkletProcessor {
     this.load += 0.05 * (dt / budget - this.load);
     if (this.telemetryOn && !this.failed && ++this.blocks % 6 === 0) {
       try {
-        if (this.creature) this.post({ type: "ctelemetry", t: this.creatureTelemetry(this.creature), load: this.load });
+        if (this.guitar) {
+          const p = this.x.engine_guitar_telemetry(this.h);
+          const b = new Float64Array(this.mem, p, 264);
+          this.post({ type: "gtelemetry", load: this.load, t: { clock: b[0], rms: b[1], fret: b[2], held: !!b[3], position: b[4], pull: b[5], envelope: b[6], displacement: Float32Array.from(b.subarray(7)) } });
+        } else if (this.creature) this.post({ type: "ctelemetry", t: this.creatureTelemetry(this.creature), load: this.load });
         else this.post(this.humanTelemetry());
       } catch (err) {
         this.fail(err);

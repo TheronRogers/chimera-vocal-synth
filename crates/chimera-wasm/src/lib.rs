@@ -118,6 +118,7 @@ pub fn write_gesture(g: &Gesture, b: &mut [u8]) {
 /// An engine and the buffers JavaScript reads and writes.
 pub struct Handle {
     engine: Engine,
+    guitar_tele: [f64; chimera::guitar::TELE_LEN],
     out: Vec<f32>,
     /// MAX_SCHEDULE gesture records written by JS before `engine_schedule`
     records: Vec<u8>,
@@ -138,6 +139,7 @@ pub struct Handle {
 pub extern "C" fn engine_new(sample_rate: f64) -> *mut Handle {
     let mut h = Box::new(Handle {
         engine: Engine::new(sample_rate),
+        guitar_tele: [0.0; chimera::guitar::TELE_LEN],
         out: vec![0.0; MAX_RENDER],
         records: vec![0u8; MAX_SCHEDULE * GESTURE_RECORD],
         gestures: Vec::with_capacity(MAX_SCHEDULE),
@@ -573,4 +575,21 @@ pub unsafe extern "C" fn engine_creature_telemetry(h: *mut Handle) -> *const f64
 pub unsafe extern "C" fn engine_score_json(h: *mut Handle) -> u32 {
     let h = handle!(h);
     api::set_result(serde_json::to_value(h.engine.score().gestures()).map_err(|e| e.to_string()))
+}
+
+// Guitar has its own telemetry layout; gesture records are unchanged.
+/// # Safety
+/// h must be a live engine handle. op: 0 activate, 1 fret, 2 contact, 3 release, 4 pluck, 5 mute.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_guitar(h: *mut Handle, op: u32, a: f64, b: f64, c: f64) {
+    let h = handle!(h);
+    match op { 0 => h.engine.set_guitar(a != 0.0), 1 => h.engine.guitar.fret(a),
+        2 => h.engine.guitar.contact(a,b,c != 0.0), 3 => h.engine.guitar.release(),
+        4 => h.engine.guitar.pluck(), 5 => h.engine.guitar.mute(), _ => {} }
+}
+/// # Safety
+/// h must be a live engine handle. Returns TELE_LEN doubles, copied before another call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_guitar_telemetry(h: *mut Handle) -> *const f64 {
+    let h = handle!(h); h.engine.guitar.telemetry(&mut h.guitar_tele); h.guitar_tele.as_ptr()
 }

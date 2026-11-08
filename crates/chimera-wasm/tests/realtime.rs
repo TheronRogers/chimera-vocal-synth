@@ -108,3 +108,25 @@ fn the_audio_thread_abi_does_not_allocate() {
         engine_free(h);
     }
 }
+
+#[test]
+fn guitar_commands_render_and_telemetry_do_not_allocate() {
+    let h = engine_new(48000.0);
+    unsafe {
+        let before = allocs();
+        engine_guitar(h, 0, 1.0, 0.0, 0.0);
+        for i in 0..200 {
+            engine_guitar(h, 1, (i % 2) as f64, 0.0, 0.0);
+            engine_guitar(h, 2, 0.8, 0.002, 1.0);
+            engine_render(h, 128);
+            engine_guitar(h, 3, 0.0, 0.0, 0.0);
+            engine_guitar(h, 4, 0.0, 0.0, 0.0);
+            engine_render(h, 128);
+            engine_guitar_telemetry(h);
+        }
+        engine_guitar(h, 5, 0.0, 0.0, 0.0);
+        engine_guitar(h, 0, 0.0, 0.0, 0.0);
+        assert_eq!(allocs() - before, 0);
+        engine_free(h);
+    }
+}

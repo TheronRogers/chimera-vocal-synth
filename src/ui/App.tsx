@@ -1,3 +1,4 @@
+import { GuitarPanel } from "./components/GuitarPanel.tsx";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useStore } from "./store.ts";
 import { engine } from "../audio/AudioEngine.ts";
@@ -59,6 +60,7 @@ function TopBar() {
         value={mode}
         onChange={setMode}
         options={[
+          { value: "guitar", label: "Guitar" },
           { value: "play", label: "Play" },
           { value: "speak", label: "Speak" },
           { value: "sing", label: "Sing" },
@@ -66,7 +68,7 @@ function TopBar() {
           { value: "beatbox", label: "Beatbox" },
         ]}
       />
-      {mode !== "bestiary" && (
+      {mode !== "bestiary" && mode !== "guitar" && (
         <div className="body-control">
           <Segmented<BodyName>
             label="Body"
@@ -231,8 +233,8 @@ function Wall() {
     <div className={`app mode-${mode}`}>
       <TopBar />
       <main className={`wall wall-${mode}`}>
-        <LeftScreen />
-        {mode === "play" ? <PlayRight /> : mode === "speak" ? <SpeakRight /> : mode === "sing" ? <SingRight /> : mode === "beatbox" ? <BeatboxRight /> : <BestiaryRight />}
+        {mode === "guitar" ? <GuitarPanel /> : <LeftScreen />}
+        {mode === "guitar" ? null : mode === "play" ? <PlayRight /> : mode === "speak" ? <SpeakRight /> : mode === "sing" ? <SingRight /> : mode === "beatbox" ? <BeatboxRight /> : <BestiaryRight />}
       </main>
     </div>
   );

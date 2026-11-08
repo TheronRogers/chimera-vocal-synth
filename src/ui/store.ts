@@ -10,7 +10,7 @@ import { singNoteOn, singNoteOff, stopSinging, ensureDictionary } from "./singin
 import { stopSpeaking } from "./speech.ts";
 import { connectMidi, disconnectMidi, type MidiStatus } from "./midi.ts";
 
-export type Mode = "play" | "speak" | "sing" | "bestiary" | "beatbox";
+export type Mode = "play" | "speak" | "sing" | "bestiary" | "beatbox" | "guitar";
 
 export interface BeatState {
   steps: (BeatStep | null)[];
@@ -136,6 +136,13 @@ export const useStore = create<State>((set, get) => ({
   setMode: (m) => {
     const prev = get().mode;
     if (prev === m) return;
+    if (prev === "guitar" || m === "guitar") {
+      engine.guitar(0, m === "guitar" ? 1 : 0);
+      engine.latestGuitar = null;
+      set({ hold: false });
+      stopSpeaking(); stopSinging(); engine.stopCall();
+      get().setBeatPlaying(false); engine.setMic(false);
+    }
     session++;
     // notes held across the switch would keep breathing into the other voice
     set({ mode: m, heldNotes: [] });
@@ -245,6 +252,7 @@ export const useStore = create<State>((set, get) => ({
         // anything set before audio existed was not delivered: send the whole state now
         const s = get();
         engine.setVolume(s.volume);
+        if (s.mode === "guitar") engine.guitar(0, 1);
         if (!sameBody(s.body, PRESETS.male)) engine.setBody(s.body);
         engine.setSource(s.source);
         engine.setArtic(s.artic, s.tipFree);

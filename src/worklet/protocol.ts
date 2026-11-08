@@ -14,7 +14,12 @@ export interface PhraseMsg {
 
 export type BodyName = "male" | "female" | "child";
 
+/** Numeric guitar ABI operations: activate, fret, contact, release, pluck, mute. */
+export type GuitarOp = 0 | 1 | 2 | 3 | 4 | 5;
+export interface GuitarTelemetry { clock: number; rms: number; fret: number; held: boolean; position: number; pull: number; envelope: number; displacement: Float32Array }
+
 export type ToWorklet =
+  | { type: "guitar"; op: GuitarOp; a?: number; b?: number; c?: number }
   | { type: "body"; body: BodyMix }
   | { type: "artic"; values: Partial<HumanArtic>; tipFree?: boolean }
   | { type: "source"; values: Partial<VoiceSource> }
@@ -62,6 +67,7 @@ export interface CreatureTelemetryMessage {
 }
 
 export type FromWorklet =
+  | { type: "gtelemetry"; t: GuitarTelemetry; load: number }
   | { type: "ready"; sampleRate: number; body: BodyMix; nPh: number; nOr: number; creature: string }
   | TelemetryMessage
   | CreatureTelemetryMessage

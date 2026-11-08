@@ -2858,3 +2858,14 @@ input[type="range"]::-moz-range-thumb {
     padding: 7px 8px 0;
   }
 }
+
+/* Guitar content stays in screen-body flow, including at phone widths. */
+.wall-guitar { grid-template-columns: minmax(0, 1fr); }
+.s-guitar { min-width: 0; }
+.guitar-instrument { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.guitar-instrument p { margin: 0; line-height: 1.5; }
+.guitar-canvas { position: relative; height: clamp(330px, 55vh, 620px); }
+.guitar-canvas canvas { width: 100%; height: 100%; touch-action: none; }
+.guitar-controls { display: flex; flex-wrap: wrap; gap: 16px; }
+.guitar-controls button { min-height: 44px; padding: 8px 20px; }
+.guitar-controls button[aria-pressed="true"] { color: var(--green); }
