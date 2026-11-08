@@ -33,6 +33,16 @@ The optional singer shares its timeline and output. Sing mode remains voice-only
   triangular pick; the other fingers curl naturally. Its elbow rests beside the guitar's
   upper bout, with the wrist aligned toward the soundhole. Audio-clock strokes drive wrist
   motion while the grip and bone lengths stay fixed.
+- The four finger metacarpals keep fixed lengths and a common palm axis. Knuckle anchors
+  retain their order and spacing when fingers curl; the thumb's existing first link is its
+  metacarpal. Chord transitions keep the phalange lengths and constrain each hinge throughout.
+  Generic rig limits are MCP extension/flexion −30°/90°, PIP flexion 110°, DIP flexion 80°,
+  and thumb MCP/IP flexion 70°/90°. MCP spread caps (index to little) are 30°/20°/30°/40°.
+  These are conservative animation choices informed by the measured variability in
+  [finger ROM](https://pmc.ncbi.nlm.nih.gov/articles/PMC11436331/) and
+  [thumb ROM](https://pubmed.ncbi.nlm.nih.gov/24426915/), rather than a per-person clinical model.
+  The strumming upper arm and forearm clear the full extruded guitar body with their rendered
+  radii throughout both stroke directions, including the instrument-only view.
 - Live grips take 100 ms on the audio clock; live strokes wait for the grip. The display
   interpolates fixed-length bone directions with clearance lift. Scheduled grips settle at
   their score deadline. Picking motion follows audio-clock strum telemetry.

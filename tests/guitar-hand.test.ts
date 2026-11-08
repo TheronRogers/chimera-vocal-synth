@@ -81,8 +81,9 @@ test("pick hands mirror the same bones and keep thumb and index pinching the pic
     const arm=pickingArm(right);
     expect(arm.reachable).toBe(true);
     expect(arm.wrist.clone().sub(arm.elbow).angleTo(right.forward)).toBeLessThan(Math.PI/4);
-    expect(arm.elbow.x).toBeGreaterThan(.75);
-    expect(arm.elbow.y).toBeGreaterThan(-.20);
+    expect(arm.elbow.x).toBeGreaterThan(.65);
+    expect(arm.elbow.y).toBeLessThan(-.20);
+    expect(arm.elbow.y).toBeGreaterThan(-.30);
     expect(arm.shoulder.distanceTo(arm.elbow)).toBeCloseTo(.29,9);
     expect(arm.elbow.distanceTo(arm.wrist)).toBeCloseTo(.24,9);
   }

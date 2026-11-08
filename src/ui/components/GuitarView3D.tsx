@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { frettingArm, pickingArm, pickingPose, performerShoulder, PERFORMER_GUITAR_TILT } from "../render/guitar-hand.ts";
+import { frettingArm, pickingArm, pickingPose, performerShoulder, PERFORMER_GUITAR_TILT, PERFORMER_GUITAR_DROP } from "../render/guitar-hand.ts";
+import { interpolateHand } from "../render/hand-palm.ts";
 import { ArticulatedHand } from "../render/articulated-hand.ts";
 import { GuitarPerformer } from "../render/guitar-performer.ts";
 import { useModel } from "../useModel.ts";
@@ -351,41 +352,7 @@ export function GuitarView3D(
         if (targetPlan && previousPlan) {
           const phase = t?.gripPhase ?? 1;
           if (phase < 1) {
-            const p = structuredClone(targetPlan);
-            p.palm = p.palm.map((v, i) =>
-              v * phase + previousPlan!.palm[i] * (1 - phase)
-            );
-            for (const f of p.fingers) {
-              const old = previousPlan.fingers.find((o) =>
-                o.finger === f.finger
-              )!;
-              let base = f.points[0].map((v, i) =>
-                v * phase + old.points[0][i] * (1 - phase)
-              );
-              if (f.finger > 0) base[2] += .020 * Math.sin(Math.PI * phase);
-              const result = [base];
-              for (let j = 1; j < f.points.length; j++) {
-                const to = new THREE.Vector3(...f.points[j]).sub(
-                  new THREE.Vector3(...f.points[j - 1]),
-                );
-                const from = new THREE.Vector3(...old.points[j]).sub(
-                  new THREE.Vector3(...old.points[j - 1]),
-                );
-                const length = to.length();
-                from.normalize();
-                const rotation = new THREE.Quaternion().setFromUnitVectors(
-                  from,
-                  to.normalize(),
-                );
-                from.applyQuaternion(
-                  new THREE.Quaternion().slerp(rotation, phase),
-                ).multiplyScalar(length);
-                base = base.map((v, i) => v + from.getComponent(i));
-                result.push(base);
-              }
-              f.points = result;
-            }
-            buildHand(p);
+            buildHand(interpolateHand(previousPlan, targetPlan, phase));
           } else if (previousPlan !== targetPlan) {
             buildHand(targetPlan);
             previousPlan = targetPlan;
@@ -423,7 +390,7 @@ export function GuitarView3D(
         const direction = t?.direction ?? 1;
         const pickPose = pickingPose(1,direction * .20 * Math.sin(phase * Math.PI * 2),
           direction * .008 * Math.sin(phase * Math.PI));
-        const pickShoulder = live.current.singer ? performerShoulder(.74) : new THREE.Vector3(.74,-.035,-.18);
+        const pickShoulder = live.current.singer ? performerShoulder(.74) : new THREE.Vector3(.74,-.035-PERFORMER_GUITAR_DROP,-.18);
         const pickArm = pickingArm(pickPose,pickShoulder);
         pickingRig.update(pickPose.fingers,{...pickPose,...pickArm});
         const pickPositions = pickGeometry.getAttribute("position") as THREE.BufferAttribute;

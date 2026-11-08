@@ -48,6 +48,7 @@ and the CLI) under a React UI. See the README.
 - **Guitar camera changes must preserve touch targeting and readable labels.** Check the
   desktop/portrait camera tests and preview e2e's mute contacts and guitar/singer layout.
 - **Fretting grips come from below the neck.** Keep the thumb behind it, bone lengths fixed, and the wrist aligned with the forearm. F uses the index barre; unused fingers curl alongside the palm. Check the articulated preset test and `tests/guitar-hand.test.ts` (low/high grips and degenerate arm IK).
+- **Validate hand constraints throughout motion.** `tests/hand-constraints.test.ts` checks joint ranges, fixed metacarpals, palm-bone separation across chord transitions, and full arm-radius clearance against the extruded guitar in both strum directions.
 - **Guitar strings share a bridge.** Sleeping strings must wake when the bridge moves. Check `plate_basis_and_reciprocal_bridge_are_live`; otherwise a valid body response can silently omit sympathetic vibration.
 - **Nothing copyrighted goes in git.** `public/shows/` is gitignored; never ship CSD audio or
   anything derived from it.

@@ -2,8 +2,8 @@ import { Quaternion, Vector3 } from "three";
 import type { HandPlan } from "../../guitar/physical.ts";
 
 /** Drop of the instrument below the upright performer's torso, in metres. */
-export const PERFORMER_GUITAR_DROP = .26;
-export const PERFORMER_GUITAR_TILT = Math.PI / 10;
+export const PERFORMER_GUITAR_DROP = .32;
+export const PERFORMER_GUITAR_TILT = Math.PI / 7.5;
 
 /** Upright shoulder expressed in the tilted guitar's coordinates, around its soundboard. */
 export function performerShoulder(x: number): Vector3 {
@@ -55,7 +55,8 @@ export function frettingArm(plan: HandPlan, shoulder = new Vector3(.42, -.035, -
   const normal = new Vector3().crossVectors(side, forward).normalize();
   const arm = solveArm(shoulder, wrist,
     wrist.clone().addScaledVector(forward, -.24));
-  return { ...arm, knuckles: center, forward, side, normal };
+  return { ...arm, knuckles: center, forward, side, normal,
+    palmForward: new Vector3(0,-1,0), palmSide: new Vector3(1,0,0), palmNormal: new Vector3(0,0,-1) };
 }
 
 /** The same phalange lengths as the fretting solver, from index to little finger. */
@@ -83,9 +84,10 @@ export function pickingPose(handedness: 1 | -1 = 1, deviation = 0, travel = 0) {
   const localIndex = indexTip.clone().sub(wrist).applyQuaternion(rotation.clone().invert());
   localIndex.x *= handedness;
   const thumbTip = localIndex.clone().add(new Vector3(-.006,0,.006));
-  const thumbBase = new Vector3(-.030,.020,-.005);
-  const thumbIP = thumbTip.clone().sub(new Vector3(0,Math.hypot(.018,.016),0));
-  const thumb = solveArm(thumbBase,thumbIP,new Vector3(-.065,.04,-.015),.045,.035);
+  const thumbBase = new Vector3(-.036,.005,.002);
+  const distal = Math.hypot(.018,.016);
+  const thumbIP = thumbTip.clone().add(new Vector3(0,distal*.5,distal*Math.sqrt(3)/2));
+  const thumb = solveArm(thumbBase,thumbIP,new Vector3(-.060,.060,.045),.045,.035);
   fingers.push({finger:0,barre:false,points:[thumbBase,thumb.elbow,thumbIP,thumbTip].map(p=>point(p).toArray())});
   const thumbWorld = point(thumbTip);
   const grip = indexTip.clone().add(thumbWorld).multiplyScalar(.5);
@@ -102,10 +104,10 @@ export function pickingPose(handedness: 1 | -1 = 1, deviation = 0, travel = 0) {
   const knuckles = new Vector3();
   fingers.filter(f=>f.finger>0).forEach(f=>knuckles.add(new Vector3(...f.points[0])));
   knuckles.multiplyScalar(.25);
-  return {wrist,forward,side,normal,knuckles,fingers,pick,grip,pickNormal,rotation};
+  return {wrist,forward,side,normal,palmForward:forward,palmSide:side,palmNormal:normal,knuckles,fingers,pick,grip,pickNormal,rotation};
 }
 
 /** The right elbow rests by the upper bout, with the forearm reaching toward the soundhole. */
 export function pickingArm(pose: ReturnType<typeof pickingPose>, shoulder = performerShoulder(.74)) {
-  return solveArm(shoulder,pose.wrist,new Vector3(.88,-.06,-.02));
+  return solveArm(shoulder,pose.wrist,new Vector3(.82,-.26,.12));
 }

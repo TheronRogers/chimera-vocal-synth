@@ -130,19 +130,22 @@ fn solve(frets: [i8; 6], assigned: [u8; 6], shift: f64, base_y: f64) -> HandPlan
         let barre = contacts.len() > 1;
         let mut base = [
             cx + (finger as f64 - 2.5) * 0.015,
-            base_y - if finger == 4 { 0.012 } else { 0.0 },
+            base_y,
             if finger == 4 { 0.030 } else { 0.018 },
         ];
         if contacts.is_empty() {
             // Unused fingers follow the metacarpal direction and curl back
             // toward the palm, outside the treble edge. Do not IK them toward
             // an invented string contact: that made idle fingers point and splay.
-            base[1] = base_y + 0.012;
             let mut points = vec![base];
             let mut p = base;
-            let along_x = -0.45;
+            let along_x = -0.15;
             let along_y = -(1.0_f64 - along_x * along_x).sqrt();
-            for (length, angle) in [(lengths[0], 1.10), (lengths[1], -0.65), (lengths[2], -1.65)] {
+            for (length, angle) in [
+                (lengths[0], 85.0 * math::PI / 180.0),
+                (lengths[1], -23.0 * math::PI / 180.0),
+                (lengths[2], -98.0 * math::PI / 180.0),
+            ] {
                 let reach = length * math::cos(angle);
                 p = [
                     p[0] + along_x * reach,
@@ -217,7 +220,11 @@ fn solve(frets: [i8; 6], assigned: [u8; 6], shift: f64, base_y: f64) -> HandPlan
             let bend = math::acos(((a * a + bc * bc - d * d) / (2.0 * a * bc)).clamp(-1.0, 1.0));
             let effective = upper - (math::PI - bend);
             let middle = effective + math::atan2(c * math::sin(dip), b + c * math::cos(dip));
-            if upper > 1.8 || upper - middle > 2.2 || upper - middle < -0.15 {
+            // Generic adult PIP flexion envelope; no backwards hinge bend.
+            if upper > math::PI / 2.0
+                || upper - middle > 110.0 * math::PI / 180.0
+                || upper - middle < 0.0
+            {
                 return invalid("The required finger bend exceeds the joint limits.");
             }
             let mut points = vec![base];
@@ -257,11 +264,55 @@ fn solve(frets: [i8; 6], assigned: [u8; 6], shift: f64, base_y: f64) -> HandPlan
     let height = (0.045_f64.powi(2) - along * along).max(0.0).sqrt();
     let thumb_mcp =
         core::array::from_fn(|i| thumb_base[i] + along * axis[i] + height * bend[i] / bend_length);
+    let thumb_tip = [cx, 0.003, -0.047];
+    let hinge_angle = |a: [f64; 3], b: [f64; 3], c: [f64; 3]| {
+        let u = core::array::from_fn::<_, 3, _>(|i| b[i] - a[i]);
+        let v = core::array::from_fn::<_, 3, _>(|i| c[i] - b[i]);
+        let dot = (0..3).map(|i| u[i] * v[i]).sum::<f64>();
+        let length =
+            (u.iter().map(|v| v * v).sum::<f64>() * v.iter().map(|v| v * v).sum::<f64>()).sqrt();
+        math::acos((dot / length).clamp(-1.0, 1.0))
+    };
+    if hinge_angle(thumb_base, thumb_mcp, thumb_ip) > 70.0 * math::PI / 180.0
+        || hinge_angle(thumb_mcp, thumb_ip, thumb_tip) > math::PI / 2.0
+    {
+        return invalid("The thumb bend exceeds this hand's joint limits.");
+    }
     fingers.push(Finger {
         finger: 0,
         barre: false,
-        points: vec![thumb_base, thumb_mcp, thumb_ip, [cx, 0.003, -0.047]],
+        points: vec![thumb_base, thumb_mcp, thumb_ip, thumb_tip],
     });
+    // A barre moves with the palm: MCP heads keep their order and a bounded arch.
+    for pair in fingers[..4].windows(2) {
+        let a = pair[0].points[0];
+        let b = pair[1].points[0];
+        if !(0.014..=0.025).contains(&(b[0] - a[0]))
+            || (b[1] - a[1]).abs() > 0.020
+            || (b[2] - a[2]).abs() > 0.020
+        {
+            return invalid("The grip exceeds the palm's knuckle spacing limits.");
+        }
+    }
+    // Anatomical hand frame: x across the MCP row, -y toward the fingertips,
+    // +z toward the flexed knuckles. IP joints are hinges in each finger's plane.
+    for finger in fingers.iter().filter(|f| f.finger > 0) {
+        let p = &finger.points;
+        let dx = p[1][0] - p[0][0];
+        let dy = p[1][1] - p[0][1];
+        let dz = p[1][2] - p[0][2];
+        let spread = math::atan2(dx, -dy).abs();
+        let flex = math::atan2(dz, math::hypot(dx, dy));
+        let max_spread = [30.0, 20.0, 30.0, 40.0][finger.finger - 1] * math::PI / 180.0;
+        if spread > max_spread
+            || flex < -30.0 * math::PI / 180.0
+            || flex > math::PI / 2.0
+            || hinge_angle(p[0], p[1], p[2]) > 110.0 * math::PI / 180.0
+            || hinge_angle(p[1], p[2], p[3]) > 80.0 * math::PI / 180.0
+        {
+            return invalid("A finger exceeds this hand's joint angle limits.");
+        }
+    }
     // Check the actual swept pad/phalange centre lines against every ringing
     // non-contact string, in instrument space (not projected screen space).
     for finger in fingers.iter().filter(|f| f.finger > 0) {
@@ -337,7 +388,7 @@ fn solve(frets: [i8; 6], assigned: [u8; 6], shift: f64, base_y: f64) -> HandPlan
 /// Search a bounded set of wrist placements; never stretch a bone to reach.
 pub fn plan(frets: [i8; 6], assigned: [u8; 6]) -> HandPlan {
     let mut result = invalid("No valid wrist placement.");
-    for shift in [0.0, 0.01, 0.02, 0.03, -0.01] {
+    for shift in [0.0, 0.01, 0.02, 0.03, -0.01, 0.04, 0.05] {
         for y in [0.062, 0.055, 0.048, 0.070] {
             result = solve(frets, assigned, shift, y);
 
