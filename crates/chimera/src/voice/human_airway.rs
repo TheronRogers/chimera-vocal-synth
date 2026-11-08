@@ -58,7 +58,7 @@ pub struct HumanAirway {
     /// below this area (cm²) the closing rate slows with √A, so the seal is reached smoothly
     pub seal_ease: f64,
     /// areas committed at the start of the current control step (slew-limit baseline)
-    base: Option<[Vec<f64>; 4]>,
+    base: [Vec<f64>; 4],
     base_dt: f64,
     noise_list: Vec<NoiseSpec>,
     scratch_frame: HumanFrame,
@@ -146,7 +146,7 @@ impl HumanAirway {
             seal_lo: 0.03,
             seal_hi: 0.4,
             seal_ease: 0.03,
-            base: None,
+            base: [vec![0.0; n_ph], vec![0.0; n_or], vec![0.0; n_ph], vec![0.0; n_or]],
             base_dt: 0.0,
             noise_list: Vec::with_capacity(8),
             scratch_frame: HumanFrame::with_capacity(),
@@ -162,7 +162,7 @@ impl HumanAirway {
     /// Geometry → targets for the next block. `dt > 0` enables slew limiting.
     pub fn apply(&mut self, a: &HumanArtic, dt: f64) -> &HumanFrame {
         if dt > 0.0 {
-            let base = self.base.get_or_insert_with(|| [vec![0.0; self.n_ph], vec![0.0; self.n_or], vec![0.0; self.n_ph], vec![0.0; self.n_or]]);
+            let base = &mut self.base;
             base[0].copy_from_slice(&self.ph_areas);
             base[1].copy_from_slice(&self.or_areas);
             base[2].copy_from_slice(&self.ph_min);
@@ -184,9 +184,8 @@ impl HumanAirway {
         let mut f = self.frame.take().unwrap_or_else(|| core::mem::take(&mut self.scratch_frame));
         self.tract.compute(a, &mut f);
         let (ph_len, or_len) = self.tract.resample(a, &f, &mut self.ph_areas, &mut self.or_areas, Some(&mut self.ph_min), Some(&mut self.or_min));
-        if dt > 0.0
-            && let Some(base) = &self.base
-        {
+        if dt > 0.0 {
+            let base = &self.base;
             // both section areas and sub-section minima are rate-limited: the minima set the jet
             // (Borda–Carnot) losses ∝ 1/A², so a fast drop chokes the flow within a block
             // rate limit grows with cross-section: wide cavities reshape fast, narrow constrictions

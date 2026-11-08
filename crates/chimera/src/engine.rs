@@ -48,6 +48,9 @@ pub struct Engine {
     pub sample_rate: f64,
     pub guitar: crate::guitar::GuitarVoice,
     guitar_active: bool,
+    guitar_gain: f64,
+    singer_gain: f64,
+    guitar_scratch: [f32; SUB_BLOCK],
     body: BodyMix,
     voice: HumanVoice,
     /// the performer's breath (the voice's own gate also follows the score)
@@ -64,7 +67,9 @@ impl Engine {
     pub fn new(sample_rate: f64) -> Engine {
         crate::init();
         let body = BodyMix::MALE;
-        Engine { sample_rate, guitar: crate::guitar::GuitarVoice::new(sample_rate), guitar_active: false, body, voice: Self::make_voice(sample_rate, body), gate_level: 0.0, pos: 0, scratch: Vec::with_capacity(MAX_SCHEDULE), beat: BeatPlayer::new(), creature: None }
+        Engine { sample_rate, guitar: crate::guitar::GuitarVoice::new(sample_rate), guitar_active: false,
+            guitar_gain: 0.7, singer_gain: 0.8, guitar_scratch: [0.0; SUB_BLOCK],
+            body, voice: Self::make_voice(sample_rate, body), gate_level: 0.0, pos: 0, scratch: Vec::with_capacity(MAX_SCHEDULE), beat: BeatPlayer::new(), creature: None }
     }
 
     fn make_voice(fs: f64, body: BodyMix) -> HumanVoice {
@@ -211,19 +216,18 @@ impl Engine {
     }
 
     pub fn set_guitar(&mut self, active: bool) {
-        self.guitar.mute();
+        if self.guitar_active != active { self.guitar.hard_reset(); }
         self.guitar_active = active;
-        if active {
-            self.stop_speech();
-            self.stop_call();
-            self.set_beat_playing(false);
-            self.set_gate(0.0);
-        }
+    }
+
+    /// Gains apply only while the guitar is enabled; the voice-only path stays bit-identical.
+    pub fn set_guitar_levels(&mut self, guitar: f64, singer: f64) {
+        self.guitar_gain = if guitar.is_finite() { guitar.clamp(0.0, 1.0) } else { 0.0 };
+        self.singer_gain = if singer.is_finite() { singer.clamp(0.0, 1.0) } else { 0.0 };
     }
 
     /// Render `out.len()` samples.
     pub fn render(&mut self, out: &mut [f32]) {
-        if self.guitar_active { self.guitar.render(out); return; }
         let mut i = 0;
         while i < out.len() {
             let phase = (self.pos % SUB_BLOCK as u64) as usize;
@@ -234,6 +238,13 @@ impl Engine {
             match self.creature.as_mut() {
                 Some(c) => c.render(&mut out[i..i + n]),
                 None => self.voice.render(&mut out[i..i + n]),
+            }
+            if self.guitar_active {
+                self.guitar.render(&mut self.guitar_scratch[..n]);
+                for (sample, guitar) in out[i..i + n].iter_mut().zip(&self.guitar_scratch[..n]) {
+                    let mix = *sample as f64 * self.singer_gain + *guitar as f64 * self.guitar_gain;
+                    *sample = if mix.is_finite() { mix.clamp(-1.0, 1.0) as f32 } else { 0.0 };
+                }
             }
             i += n;
             self.pos += n as u64;

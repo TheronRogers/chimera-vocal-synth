@@ -115,14 +115,31 @@ fn guitar_commands_render_and_telemetry_do_not_allocate() {
     unsafe {
         let before = allocs();
         engine_guitar(h, 0, 1.0, 0.0, 0.0);
+        assert_eq!(allocs() - before, 0, "activation allocated");
+        engine_set_gate(h, 0.7);
+        assert_eq!(allocs() - before, 0, "gate allocated");
+        let records = std::slice::from_raw_parts_mut(engine_guitar_records(h), 2 * GUITAR_EVENT_BYTES);
+        for (i, event) in [
+            [0.0,0.0,2.0,2.0,0.0,0.0,0.0,1.0,0.8,0.0],
+            [0.2,-1.0,3.0,2.0,0.0,1.0,0.0,-1.0,0.8,1.0],
+        ].iter().enumerate() {
+            for (j,v) in event.iter().enumerate() { records[i*80+j*8..i*80+j*8+8].copy_from_slice(&f64::to_le_bytes(*v)); }
+        }
+        engine_guitar_schedule(h,2,0.05,0.4,1,120.0);
+        assert_eq!(allocs() - before, 0, "score loading allocated");
         for i in 0..200 {
-            engine_guitar(h, 1, (i % 2) as f64, 0.0, 0.0);
-            engine_guitar(h, 2, 0.8, 0.002, 1.0);
+            engine_guitar(h, 1, (i % 6) as f64, (i % 13) as f64, 0.0);
+            engine_guitar(h, 2, (i % 6) as f64, 1.0, 0.0);
+            assert_eq!(allocs() - before, 0, "fret/mute iteration {i} allocated");
             engine_render(h, 128);
-            engine_guitar(h, 3, 0.0, 0.0, 0.0);
-            engine_guitar(h, 4, 0.0, 0.0, 0.0);
+            assert_eq!(allocs() - before, 0, "first render iteration {i} allocated");
+            engine_guitar(h, 3, (i % 6) as f64, 0.8, 0.0);
+            engine_guitar(h, 2, (i % 6) as f64, 0.0, 0.0);
+            engine_guitar(h, 4, -1.0, 0.8, 0.0);
+            engine_guitar(h, 6, 0.7, 0.8, 0.0);
             engine_render(h, 128);
             engine_guitar_telemetry(h);
+            assert_eq!(allocs() - before, 0, "guitar render iteration {i} allocated");
         }
         engine_guitar(h, 5, 0.0, 0.0, 0.0);
         engine_guitar(h, 0, 0.0, 0.0, 0.0);

@@ -45,6 +45,8 @@ pub const STEP_RECORD: usize = 48;
 pub const LAYOUT_VERSION: u32 = 1;
 /// Largest `engine_render` request (frames).
 pub const MAX_RENDER: usize = 4096;
+pub const GUITAR_EVENT_BYTES: usize = 80;
+pub const GUITAR_MAX_EVENTS: usize = 2048;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn chimera_layout_version() -> u32 {
@@ -119,6 +121,8 @@ pub fn write_gesture(g: &Gesture, b: &mut [u8]) {
 pub struct Handle {
     engine: Engine,
     guitar_tele: [f64; chimera::guitar::TELE_LEN],
+    guitar_records: Vec<u8>,
+    guitar_events: Vec<chimera::guitar::GuitarEvent>,
     out: Vec<f32>,
     /// MAX_SCHEDULE gesture records written by JS before `engine_schedule`
     records: Vec<u8>,
@@ -140,6 +144,8 @@ pub extern "C" fn engine_new(sample_rate: f64) -> *mut Handle {
     let mut h = Box::new(Handle {
         engine: Engine::new(sample_rate),
         guitar_tele: [0.0; chimera::guitar::TELE_LEN],
+        guitar_records: vec![0; GUITAR_MAX_EVENTS * GUITAR_EVENT_BYTES],
+        guitar_events: Vec::with_capacity(GUITAR_MAX_EVENTS),
         out: vec![0.0; MAX_RENDER],
         records: vec![0u8; MAX_SCHEDULE * GESTURE_RECORD],
         gestures: Vec::with_capacity(MAX_SCHEDULE),
@@ -579,13 +585,56 @@ pub unsafe extern "C" fn engine_score_json(h: *mut Handle) -> u32 {
 
 // Guitar has its own telemetry layout; gesture records are unchanged.
 /// # Safety
-/// h must be a live engine handle. op: 0 activate, 1 fret, 2 contact, 3 release, 4 pluck, 5 mute.
+/// h must be a live engine handle. Guitar ABI v2: 0 active, 1 fret(index,fret),
+/// 2 held mute(index,on), 3 pluck(index,strength), 4 strum(direction,strength), 5 stop, 6 mix.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn engine_guitar(h: *mut Handle, op: u32, a: f64, b: f64, c: f64) {
+pub unsafe extern "C" fn engine_guitar(h: *mut Handle, op: u32, a: f64, b: f64, _c: f64) {
     let h = handle!(h);
-    match op { 0 => h.engine.set_guitar(a != 0.0), 1 => h.engine.guitar.fret(a),
-        2 => h.engine.guitar.contact(a,b,c != 0.0), 3 => h.engine.guitar.release(),
-        4 => h.engine.guitar.pluck(), 5 => h.engine.guitar.mute(), _ => {} }
+    let index = if a.is_finite() && (0.0..6.0).contains(&a) && a.fract() == 0.0 { Some(a as usize) } else { None };
+    match op {
+        0 => h.engine.set_guitar(a.is_finite() && a != 0.0),
+        1 => if let Some(i) = index { h.engine.guitar.set_fret(i, if b.is_finite() { b.round().clamp(-1.0,12.0) as i8 } else { -1 }); },
+        2 => if let Some(i) = index { h.engine.guitar.set_mute(i,b.is_finite() && b != 0.0); },
+        3 => if let Some(i) = index { h.engine.guitar.pluck(i,b); },
+        4 => h.engine.guitar.strum(if a < 0.0 { -1 } else { 1 },b),
+        5 => h.engine.guitar.stop(),
+        6 => h.engine.set_guitar_levels(a,b),
+        _ => {}
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn engine_guitar_layout_version() -> u32 { chimera::guitar::GUITAR_LAYOUT_VERSION }
+#[unsafe(no_mangle)]
+pub extern "C" fn engine_guitar_telemetry_len() -> usize { chimera::guitar::TELE_LEN }
+
+/// # Safety
+/// h must be live. Writable fixed buffer of GUITAR_MAX_EVENTS × 80 bytes.
+/// Each record is ten LE f64s: time, six frets, direction, strength, progression step.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_guitar_records(h: *mut Handle) -> *mut u8 {
+    handle!(h).guitar_records.as_mut_ptr()
+}
+
+/// # Safety
+/// h must be live. Events must be written to engine_guitar_records before calling.
+/// `lead` is relative to the current guitar clock, shared with the voice schedule's lead.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_guitar_schedule(h: *mut Handle, n: usize, lead: f64, duration: f64, looping: u32, bpm: f64) {
+    let h = handle!(h);
+    h.guitar_events.clear();
+    for record in h.guitar_records.chunks_exact(GUITAR_EVENT_BYTES).take(n.min(GUITAR_MAX_EVENTS)) {
+        let f = |i: usize| f64::from_le_bytes(record[i*8..i*8+8].try_into().unwrap());
+        let time = f(0);
+        if !time.is_finite() || time < 0.0 { continue; }
+        let frets = core::array::from_fn(|i| if f(i+1).is_finite() { f(i+1).round().clamp(-1.0,12.0) as i8 } else { -1 });
+        h.guitar_events.push(chimera::guitar::GuitarEvent {
+            time, frets, direction: if f(7) < 0.0 { -1 } else if f(7) > 0.0 { 1 } else { 0 },
+            strength: f(8), step: f(9).clamp(0.0,31.0) as u16,
+        });
+    }
+    let start = h.engine.guitar.clock() + if lead.is_finite() { lead.clamp(0.0,10.0) } else { 0.0 };
+    h.engine.guitar.load_score(&h.guitar_events,start,duration,looping != 0,bpm);
 }
 /// # Safety
 /// h must be a live engine handle. Returns TELE_LEN doubles, copied before another call.
