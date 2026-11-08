@@ -113,7 +113,8 @@ fn solve(frets: [i8; 6], assigned: [u8; 6], shift: f64, base_y: f64) -> HandPlan
         return invalid("The fret span exceeds this hand’s reach.");
     }
     let cx = fret_x(min) - 0.012 + shift;
-    let palm = [cx, -0.070, -0.025];
+    // Positive instrument y becomes below the neck after the front-view rotation.
+    let palm = [cx, base_y + 0.018, -0.012];
     let mut fingers = Vec::new();
     let mut forces = [0.0; 6];
     for finger in 1..=4 {
@@ -129,30 +130,48 @@ fn solve(frets: [i8; 6], assigned: [u8; 6], shift: f64, base_y: f64) -> HandPlan
         let barre = contacts.len() > 1;
         let mut base = [
             cx + (finger as f64 - 2.5) * 0.015,
-            base_y + if finger == 4 { 0.012 } else { 0.0 },
+            base_y - if finger == 4 { 0.012 } else { 0.0 },
             if finger == 4 { 0.030 } else { 0.018 },
         ];
-        let tip = if let Some(&i) = contacts.last() {
-            {
-                let peers = (0..6)
-                    .filter(|&j| {
-                        frets[j] == frets[i] && assigned[j] != finger as u8 && assigned[j] > 0
-                    })
-                    .count();
-                let offset = if !barre && peers > 0 {
-                    0.004 + (4 - finger) as f64 * 0.008
-                } else {
-                    0.006
-                };
-                [
-                    fret_x(frets[i]) - offset,
-                    string_y(i, fret_x(frets[i])),
-                    0.0095,
-                ]
+        if contacts.is_empty() {
+            // Unused fingers follow the metacarpal direction and curl back
+            // toward the palm, outside the treble edge. Do not IK them toward
+            // an invented string contact: that made idle fingers point and splay.
+            base[1] = base_y + 0.012;
+            let mut points = vec![base];
+            let mut p = base;
+            let along_x = -0.45;
+            let along_y = -(1.0_f64 - along_x * along_x).sqrt();
+            for (length, angle) in [(lengths[0], 1.10), (lengths[1], -0.65), (lengths[2], -1.65)] {
+                let reach = length * math::cos(angle);
+                p = [
+                    p[0] + along_x * reach,
+                    p[1] + along_y * reach,
+                    p[2] + length * math::sin(angle),
+                ];
+                points.push(p);
             }
+            fingers.push(Finger {
+                finger,
+                points,
+                barre: false,
+            });
+            continue;
+        }
+        let i = contacts[0];
+        let peers = (0..6)
+            .filter(|&j| frets[j] == frets[i] && assigned[j] != finger as u8 && assigned[j] > 0)
+            .count();
+        let offset = if !barre && peers > 0 {
+            0.004 + (4 - finger) as f64 * 0.008
         } else {
-            [base[0] + 0.012, base[1] + 0.040, 0.040]
+            0.006
         };
+        let tip = [
+            fret_x(frets[i]) - offset,
+            string_y(i, fret_x(frets[i])),
+            0.0095,
+        ];
         if barre {
             let f = frets[contacts[0]];
             let from = *contacts.first().unwrap();
@@ -162,13 +181,19 @@ fn solve(frets: [i8; 6], assigned: [u8; 6], shift: f64, base_y: f64) -> HandPlan
             {
                 return invalid("A barre would touch an open or lower-fretted string.");
             }
-            base = [tip[0], tip[1] - lengths.iter().sum::<f64>(), tip[2]];
-            let mut points = vec![base];
-            let mut p = base;
-            for l in lengths {
-                p[1] += l;
-                points.push(p);
-            }
+            // The middle/distal pads lie across the strings. The proximal
+            // phalanx rises off the treble edge to a flexed MCP, rather than
+            // extending all three bones as one rigid rod through the palm.
+            let [a, b, c] = lengths;
+            let pip = [tip[0], tip[1] + b + c, tip[2]];
+            let rise = 0.018;
+            let spread = 0.008;
+            base = [
+                pip[0] + spread,
+                pip[1] + (a * a - rise * rise - spread * spread).sqrt(),
+                pip[2] + rise,
+            ];
+            let points = vec![base, pip, [tip[0], tip[1] + c, tip[2]], tip];
             fingers.push(Finger {
                 finger,
                 points,
@@ -216,16 +241,26 @@ fn solve(frets: [i8; 6], assigned: [u8; 6], shift: f64, base_y: f64) -> HandPlan
             forces[i] = 3.0;
         }
     }
-    // CMC, MCP and IP chains oppose the fingers at the back of the rounded neck.
+    // Thumb opposition: fixed CMC/MCP/IP lengths, bending behind the neck.
+    let thumb_base = [palm[0] - 0.023, palm[1], palm[2]];
+    let thumb_ip = [cx - 0.018, 0.019, -0.047];
+    let delta = core::array::from_fn::<_, 3, _>(|i| thumb_ip[i] - thumb_base[i]);
+    let distance = delta.iter().map(|v| v * v).sum::<f64>().sqrt();
+    let axis = delta.map(|v| v / distance);
+    let along = (0.045_f64.powi(2) - 0.035_f64.powi(2) + distance * distance) / (2.0 * distance);
+    let mut bend = [-0.2, 0.0, -1.0];
+    let projection = (0..3).map(|i| bend[i] * axis[i]).sum::<f64>();
+    for i in 0..3 {
+        bend[i] -= projection * axis[i];
+    }
+    let bend_length = bend.iter().map(|v| v * v).sum::<f64>().sqrt();
+    let height = (0.045_f64.powi(2) - along * along).max(0.0).sqrt();
+    let thumb_mcp =
+        core::array::from_fn(|i| thumb_base[i] + along * axis[i] + height * bend[i] / bend_length);
     fingers.push(Finger {
         finger: 0,
         barre: false,
-        points: vec![
-            [cx - 0.028, -0.070, -0.025],
-            [cx - 0.038, -0.042, -0.042],
-            [cx - 0.025, -0.016, -0.047],
-            [cx, -0.003, -0.047],
-        ],
+        points: vec![thumb_base, thumb_mcp, thumb_ip, [cx, 0.003, -0.047]],
     });
     // Check the actual swept pad/phalange centre lines against every ringing
     // non-contact string, in instrument space (not projected screen space).
@@ -303,7 +338,7 @@ fn solve(frets: [i8; 6], assigned: [u8; 6], shift: f64, base_y: f64) -> HandPlan
 pub fn plan(frets: [i8; 6], assigned: [u8; 6]) -> HandPlan {
     let mut result = invalid("No valid wrist placement.");
     for shift in [0.0, 0.01, 0.02, 0.03, -0.01] {
-        for y in [-0.062, -0.055, -0.048, -0.070] {
+        for y in [0.062, 0.055, 0.048, 0.070] {
             result = solve(frets, assigned, shift, y);
 
             if result.valid {

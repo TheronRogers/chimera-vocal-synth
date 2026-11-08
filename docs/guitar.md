@@ -23,7 +23,11 @@ The optional singer shares its timeline and output. Sing mode remains voice-only
 - Chords are solved with fixed phalange lengths, bounded finger bends, a thumb chain behind
   the neck, and spatial string/finger clearance checks. Invalid custom edits stay visible as
   drafts with an explanation while the last playable chord remains applied. The physical
-  model is a generic adult hand; rejection describes this rig’s limits.
+  model is a generic adult hand; rejection describes this rig’s limits. The fretting palm
+  cups below the neck; unused fingers curl along the palm outside the treble edge. F uses
+  one index barre across all six strings, bent at the knuckle with continuous flat distal pads. A two-bone
+  shoulder/elbow solver follows the wrist with fixed 290/240 mm arm lengths. The elbow
+  pole follows the metacarpal axis to limit wrist bend as the hand moves up the neck.
 - Live grips take 100 ms on the audio clock; live strokes wait for the grip. The display
   interpolates fixed-length bone directions with clearance lift. Scheduled grips settle at
   their score deadline. Picking motion follows audio-clock strum telemetry.
@@ -122,11 +126,11 @@ and six-string-plus-singer cost. Browser touch tests use synthetic events, not p
 
 ### Verification of the 3D/coupled implementation
 
-130 Rust tests and 38 Bun tests pass, including cold allocations and native/WASM byte
+131 Rust tests and 40 Bun tests pass, including cold allocations and native/WASM byte
 identity. Both intentional golden re-blesses pass. Production build and typecheck pass.
 Chrome preview e2e covers projected contacts, invalid drafts, neck-back inspection, both
 singer arrangements, transport cancellation and clock synchronization. Layout lint reports
-zero errors in 254 views across eight viewport sizes; 20 pre-existing truncation warnings
+zero errors in 256 views across eight viewport sizes; 20 pre-existing truncation warnings
 remain in other screens. Native guitar-plus-singer cost measured 29.3% of one core versus
 36.5% before this change on this machine. Browser contacts remain synthetic; no physical
 touch hardware or measured-instrument listening comparison was performed.

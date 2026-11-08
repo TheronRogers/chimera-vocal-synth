@@ -461,7 +461,7 @@ fn plate_basis_and_reciprocal_bridge_are_live() {
     );
 }
 #[test]
-fn articulated_presets_keep_bone_lengths_and_thumb_behind_neck() {
+fn articulated_presets_grip_from_below_with_fixed_bones_and_thumb_behind_neck() {
     use chimera::guitar::geometry::plan;
     for (frets, fingers) in [
         ([-1, 3, 2, 0, 1, 0], [0, 3, 2, 0, 1, 0]),
@@ -477,6 +477,55 @@ fn articulated_presets_keep_bone_lengths_and_thumb_behind_neck() {
     ] {
         let p = plan(frets, fingers);
         assert!(p.valid, "{:?}: {:?}", frets, p.error);
+        // The renderer turns the instrument through PI: positive y is below the neck.
+        assert!(p.palm[1] > 0.02225);
+        for f in &p.fingers {
+            assert!(
+                f.points[0][1] > 0.02225,
+                "finger {} starts above neck",
+                f.finger
+            );
+            if f.finger == 0 {
+                for (pair, length) in f.points.windows(2).zip([
+                    0.045,
+                    0.035,
+                    (0.018_f64.powi(2) + 0.016_f64.powi(2)).sqrt(),
+                ]) {
+                    let distance = (0..3)
+                        .map(|i| (pair[1][i] - pair[0][i]).powi(2))
+                        .sum::<f64>()
+                        .sqrt();
+                    assert!(
+                        (distance - length).abs() < 1e-9,
+                        "thumb bones must not stretch"
+                    );
+                }
+                continue;
+            }
+            let contacts: Vec<_> = (0..6)
+                .filter(|&i| frets[i] > 0 && fingers[i] as usize == f.finger)
+                .collect();
+            if contacts.is_empty() {
+                assert!(
+                    f.points.iter().all(|p| p[1] > 0.02225),
+                    "unused finger {} must rest outside the treble edge",
+                    f.finger
+                );
+                assert!(
+                    f.points.last().unwrap()[0] < f.points[0][0],
+                    "unused fingers follow the palm toward the nut"
+                );
+            }
+            if let Some(&i) = contacts.first() {
+                let tip = f.points.last().unwrap();
+                assert!(
+                    (tip[1] - chimera::guitar::geometry::string_y(i, tip[0])).abs() < 0.0005,
+                    "{frets:?}, finger {} tip {tip:?}",
+                    f.finger
+                );
+                assert!((tip[2] - 0.0095).abs() < 1e-9);
+            }
+        }
         assert!(
             p.fingers
                 .iter()
@@ -488,6 +537,14 @@ fn articulated_presets_keep_bone_lengths_and_thumb_behind_neck() {
                 < -0.04
         );
         for f in p.fingers.iter().filter(|f| f.finger > 0) {
+            if f.barre {
+                assert!(
+                    f.points[0][2] - f.points[1][2] > 0.015,
+                    "the barre MCP must flex above the flat contact pads"
+                );
+                assert!((f.points[1][2] - f.points[3][2]).abs() < 1e-9);
+                assert!(f.points[1][1] > 0.02225, "barre PIP clears the treble edge");
+            }
             let lengths = match f.finger {
                 1 => [0.044, 0.026, 0.019],
                 2 => [0.048, 0.029, 0.020],
@@ -505,6 +562,29 @@ fn articulated_presets_keep_bone_lengths_and_thumb_behind_neck() {
     }
     assert!(!plan([1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 0, 0]).valid);
     assert!(!plan([1, 0, 1, 0, 0, 0], [1, 0, 1, 0, 0, 0]).valid);
+}
+
+#[test]
+fn f_uses_one_index_barre_across_all_six_strings() {
+    use chimera::guitar::geometry::{plan, string_y};
+    let p = plan([1, 3, 3, 2, 1, 1], [1, 3, 4, 2, 1, 1]);
+    assert!(p.valid, "{:?}", p.error);
+    let index = p.fingers.iter().find(|f| f.finger == 1).unwrap();
+    assert!(index.barre);
+    assert_eq!(p.fingers.iter().filter(|f| f.barre).count(), 1);
+    let pip = index.points[1];
+    let tip = index.points[3];
+    for string in 0..6 {
+        let y = string_y(string, tip[0]);
+        assert!(
+            y >= tip[1] - 0.0005 && y <= pip[1],
+            "index misses string {string}"
+        );
+    }
+    assert!((pip[0] - tip[0]).abs() < 1e-9);
+    assert!((pip[2] - tip[2]).abs() < 1e-9);
+    assert!(index.points[0][2] > pip[2]);
+    assert!(plan([0; 6], [0; 6]).valid, "all-open grip rests naturally");
 }
 
 #[test]

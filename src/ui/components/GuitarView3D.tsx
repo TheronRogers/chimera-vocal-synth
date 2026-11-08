@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { ConvexGeometry } from "three/addons/geometries/ConvexGeometry.js";
+import { frettingArm } from "../render/guitar-hand.ts";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { call } from "../../wasm/chimera.ts";
 import { type Chord, fingerChord, type Frets } from "../../guitar/model.ts";
@@ -236,40 +236,55 @@ export function GuitarView3D(
     function buildHand(plan: HandPlan) {
       clearHand();
       const first = geometries.length;
+      const joint = (point: number[], radius: number) => {
+        const m = mesh(new THREE.SphereGeometry(radius, 12, 8), skin, fretting, false);
+        m.position.fromArray(point);
+        handObjects.push(m);
+      };
+      const bone = (a: number[], b: number[], start: number, end: number) => {
+        const av = new THREE.Vector3(...a), bv = new THREE.Vector3(...b);
+        const direction = bv.clone().sub(av);
+        const m = mesh(new THREE.CylinderGeometry(end, start, direction.length(), 12), skin, fretting, false);
+        m.position.copy(av.add(bv).multiplyScalar(.5));
+        m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+        handObjects.push(m);
+      };
+      const arm = frettingArm(plan);
+      bone(arm.shoulder.toArray(), arm.elbow.toArray(), .034, .028);
+      joint(arm.elbow.toArray(), .028);
+      bone(arm.elbow.toArray(), arm.wrist.toArray(), .027, .014);
+      joint(arm.wrist.toArray(), .014);
+
+      // A cupped metacarpal mass and individual knuckles replace the angular slab.
+      const palmCenter = arm.wrist.clone().lerp(arm.knuckles, .55);
+      const palm = mesh(new THREE.SphereGeometry(1, 20, 12), skin, fretting, false);
+      palm.position.copy(palmCenter);
+      palm.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(arm.side, arm.forward, arm.normal));
+      palm.scale.set(.032, arm.wrist.distanceTo(arm.knuckles) * .56, .014);
+      handObjects.push(palm);
       for (const finger of plan.fingers) {
-        for (let j = 1; j < finger.points.length; j++) {
-          handObjects.push(
-            segment(
-              finger.points[j - 1],
-              finger.points[j],
-              finger.finger === 0 ? .007 : j === 1 ? .0055 : .0032,
-              skin,
-              fretting,
-            ),
-          );
+        const thumb = finger.finger === 0;
+        const radii = thumb ? [.008, .007, .006, .0055] : [.007, .0057, .0045, .0038];
+        bone(arm.wrist.toArray(), finger.points[0], thumb ? .011 : .010, radii[0]);
+        if (finger.barre) {
+          joint(finger.points[0], .007);
+          bone(finger.points[0], finger.points[1], .007, .0065);
+          // One continuous index pad lies across the strings; the MCP remains flexed.
+          const from = new THREE.Vector3(...finger.points[1]);
+          const to = new THREE.Vector3(...finger.points[3]);
+          const direction = to.clone().sub(from);
+          const pad = mesh(new THREE.CapsuleGeometry(.0065, direction.length() - .013, 6, 12), skin, fretting, false);
+          pad.position.copy(from.add(to).multiplyScalar(.5));
+          pad.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+          pad.scale.z = .0055 / .0065;
+          handObjects.push(pad);
+          continue;
+        }
+        for (let j = 0; j < finger.points.length; j++) {
+          joint(finger.points[j], radii[j]);
+          if (j > 0) bone(finger.points[j - 1], finger.points[j], radii[j - 1], radii[j]);
         }
       }
-      const anchors = plan.fingers.filter((f) => f.finger > 0).flatMap((f) =>
-        [-.010, .010].map((z) =>
-          new THREE.Vector3(f.points[0][0], f.points[0][1], f.points[0][2] + z)
-        )
-      );
-      for (const x of [-.030, .030]) {
-        for (const z of [-.015, .015]) {
-          anchors.push(new THREE.Vector3(plan.palm[0] + x, -.096, z));
-        }
-      }
-      const p = mesh(new ConvexGeometry(anchors), skin, fretting);
-      handObjects.push(p);
-      handObjects.push(
-        segment(
-          [plan.palm[0], -.09, 0],
-          [plan.palm[0] - .02, -.17, -.01],
-          .018,
-          skin,
-          fretting,
-        ),
-      );
       handGeos = geometries.slice(first);
     }
     const palm = mesh(new THREE.SphereGeometry(1, 12, 8), skin, picking);
