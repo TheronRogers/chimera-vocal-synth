@@ -345,6 +345,14 @@ async function main() {
         await page.getByRole("button", { name: /^Speak$/ }).click();
         await check("speak (running), speaking", 900);
       }
+      if (m === "guitar") {
+        await page.getByRole("checkbox", { name: "With singer", exact: true }).check();
+        await check("guitar (running), singer");
+        await page.getByRole("button", { name: "Play accompaniment", exact: true }).click();
+        await check("guitar (running), singing and strumming", 900);
+        await page.getByRole("button", { name: "Stop accompaniment", exact: true }).click();
+        await page.getByRole("checkbox", { name: "With singer", exact: true }).uncheck();
+      }
       if (m === "bestiary") {
         // each creature has its own names and parameters
         const specimens = page.locator(".s-gallery .specimen");

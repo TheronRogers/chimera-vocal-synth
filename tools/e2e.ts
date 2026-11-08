@@ -4,6 +4,7 @@
  * Usage: bun tools/e2e.ts [url] [outdir]
  */
 import { chromium } from "playwright-core";
+import { guitarCamera } from "../src/ui/render/guitar.ts";
 import { mkdirSync } from "node:fs";
 
 const url = process.argv[2] ?? "http://127.0.0.1:5318/";
@@ -202,68 +203,83 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
   await page.getByRole("radio", { name: "Guitar", exact: true }).click();
   const state = () => page.evaluate(() => {
     // @ts-expect-error debug handle
-    const t = window.__chimeraEngine?.latestGuitar;
-    return t ? { rms: t.rms, fret: t.fret, held: t.held, envelope: t.envelope } : null;
+    const e = window.__chimeraEngine, t = e?.latestGuitar;
+    return t ? { rms:t.rms, playing:t.playing, step:t.step, playhead:t.playhead, clock:t.clock, voiceClock:e.latest?.t.clock, voiceRms:e.latest?.t.outRms, load:e.load, strings:t.strings.map((s:any)=>({fret:s.fret,muted:s.muted,envelope:s.envelope,rms:s.rms})) } : null;
   });
-  // A first key can start the audio. F works while the mode tab has focus.
-  await page.keyboard.down("f");
-  await page.waitForFunction(() => {
-    // @ts-expect-error debug handle
-    return window.__chimeraEngine?.latestGuitar?.fret > 0.99;
-  });
-  // Move focus off the radio so Space operates the instrument, not native button activation.
-  await page.locator(".guitar-instrument p").first().click();
+  await page.locator('.guitar-instrument p').first().click();
   await page.keyboard.press("Space");
-  await page.waitForTimeout(150);
-  const playing = await state();
-  if (!(playing && playing.rms > 0.001 && playing.fret > 0.99 && !playing.held)) errors.push(`[${tag}-guitar] fretted keyboard pluck failed: ${JSON.stringify(playing)}`);
-  await page.keyboard.up("f");
-  await page.getByRole("button", { name: "Mute", exact: true }).click();
+  await page.waitForTimeout(350);
+  const playing=await state();
+  if(!(playing&&playing.rms>.001&&playing.strings.length===6)) errors.push(`[${tag}-guitar] first keyboard strum failed: ${JSON.stringify(playing)}`);
+  await page.getByRole('button',{name:'Stop all',exact:true}).click();
+  await page.waitForTimeout(120);
+  if((await state())?.rms!==0)errors.push(`[${tag}-guitar] Stop all left guitar sounding`);
+  const canvas=page.locator('.guitar-canvas canvas');
+  await canvas.scrollIntoViewIfNeeded();
+  const b=(await canvas.boundingBox())!, c=guitarCamera(b.width,b.height);
+  const point=(i:number,id:number)=>({x:b.x+c.x+(c.portrait?540-(240+i*13):813)*c.scale,y:b.y+c.y+(c.portrait?813:240+i*13)*c.scale,id});
+  const p=point(0,1);
+  await page.mouse.move(p.x,p.y);await page.mouse.down();
+  await page.mouse.move(p.x+30,p.y+45,{steps:10});await page.waitForTimeout(100);
+  if(!(await state())?.strings[0].muted)errors.push(`[${tag}-guitar] dragging lost the original mute contact`);
+  await page.mouse.up();await page.waitForTimeout(120);
+  const released=await state();
+  if(released?.strings.some((s:any)=>s.muted)||released?.rms!==0)errors.push(`[${tag}-guitar] drag/release excited the string: ${JSON.stringify(released)}`);
+  // Two captured touches stay attached to their original strings, including after moving.
+  const cdp=await page.context().newCDPSession(page);
+  const p0=point(0,1),p5=point(5,2);
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[p0,p5]});
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{...p0,x:p0.x+20},{...p5,y:p5.y+20}]});
   await page.waitForTimeout(100);
-  if ((await state())?.rms !== 0) errors.push(`[${tag}-guitar] mute left audio sounding`);
-  const canvas = page.locator(".guitar-canvas canvas");
-  const b = (await canvas.boundingBox())!;
-  const x = b.x + 35 + (b.width - 70)*0.8, y = b.y + b.height*0.43;
-  await page.keyboard.down("f");
-  await page.mouse.move(x,y); await page.mouse.down();
-  await page.mouse.move(x,y+45,{steps:12}); await page.waitForTimeout(100);
-  if (!(await state())?.held) errors.push(`[${tag}-guitar] mouse did not pull the string`);
-  await page.mouse.up(); await page.waitForTimeout(150);
-  if (!((await state())!.rms > 0.001)) errors.push(`[${tag}-guitar] mouse release made no sound`);
-  await page.keyboard.up("f");
-  // Real browser touch events exercise two independent pointer captures.
-  const cdp = await page.context().newCDPSession(page);
-  const fretPoint = {x:b.x+35+(b.width-70)*14/256,y:y+10,id:1};
-  const pluckPoint = {x,y,id:2};
-  await cdp.send("Input.dispatchTouchEvent", {type:"touchStart",touchPoints:[fretPoint,pluckPoint]});
-  await cdp.send("Input.dispatchTouchEvent", {type:"touchMove",touchPoints:[fretPoint,{...pluckPoint,y:y+50}]});
-  await page.waitForTimeout(150);
-  const touched = await state();
-  if (!(touched?.held && touched.fret > 0.99)) errors.push(`[${tag}-guitar] simultaneous touch failed: ${JSON.stringify(touched)}`);
-  await cdp.send("Input.dispatchTouchEvent", {type:"touchMove",touchPoints:[{...fretPoint,y:y+37},{...pluckPoint,y:y+50}]});
-  await page.waitForTimeout(100);
-  const light=await state();
-  if (!(light && light.fret>0.1 && light.fret<0.9 && light.held)) errors.push(`[${tag}-guitar] light touch failed: ${JSON.stringify(light)}`);
-  await cdp.send("Input.dispatchTouchEvent", {type:"touchMove",touchPoints:[fretPoint,{...pluckPoint,y:y+50}]});
-  await page.waitForTimeout(100);
+  const touched=await state();
+  if(!(touched?.strings[0].muted&&touched.strings[5].muted))errors.push(`[${tag}-guitar] independent touch mutes failed`);
+  await page.keyboard.press('Space');await page.waitForTimeout(200);
+  const damped=await state();
+  if(damped?.strings[0].envelope>1e-7||damped?.strings[5].envelope>1e-7)errors.push(`[${tag}-guitar] strum overrode held mute`);
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});await page.waitForTimeout(80);
+  if((await state())?.strings.some((s:any)=>s.muted))errors.push(`[${tag}-guitar] cancellation left a contact`);
+  // Keyboard access to a mute is momentary, and blur releases it.
+  const mute=page.getByRole('button',{name:'Hold mute D3',exact:true});
+  await mute.focus();await page.keyboard.down('Space');await page.waitForTimeout(80);
+  if(!(await state())?.strings[2].muted)errors.push(`[${tag}-guitar] keyboard mute failed`);
+  await page.evaluate(()=>window.dispatchEvent(new Event('blur')));await page.keyboard.up('Space');await page.waitForTimeout(80);
+  if((await state())?.strings.some((s:any)=>s.muted))errors.push(`[${tag}-guitar] blur left a contact`);
+  await page.getByRole('button',{name:'F',exact:true}).click();
+  await page.getByRole('button',{name:'Strum up ↑',exact:true}).click();await page.waitForTimeout(180);
+  const fretted=await state();
+  if(JSON.stringify(fretted?.strings.map((s:any)=>s.fret))!==JSON.stringify([1,3,3,2,1,1]))errors.push(`[${tag}-guitar] barre chord did not reach all strings`);
   await page.screenshot({path:`${outDir}/${tag}-guitar.png`,fullPage:true});
-  await cdp.send("Input.dispatchTouchEvent", {type:"touchCancel",touchPoints:[]});
-  await page.waitForTimeout(100);
-  const cancelled = await state();
-  if (cancelled?.held || (cancelled?.fret ?? 1)>0.01) errors.push(`[${tag}-guitar] cancelled touch left a contact`);
-  // Blur and unmount release both hands, including a latched accessible fret control.
-  await page.getByRole("button", {name:"Hold fret",exact:true}).click();
-  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
-  await page.waitForTimeout(100);
-  if ((await state())!.fret>0.01) errors.push(`[${tag}-guitar] blur left fret held`);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth>innerWidth);
-  if (overflow) errors.push(`[${tag}-guitar] horizontal overflow`);
-  await page.getByRole("radio", {name:"Play",exact:true}).click();
-  await page.getByRole("radio", {name:"Guitar",exact:true}).click();
-  await page.waitForTimeout(100);
+  // Standalone transport loops; editing a score does not replace the sounding score.
+  await page.getByRole('button',{name:'Play accompaniment',exact:true}).click();await page.waitForTimeout(600);
+  if(!(await state())?.playing)errors.push(`[${tag}-guitar] progression did not start`);
+  await page.getByRole('spinbutton',{name:'Guitar tempo',exact:true}).fill('120');
+  await page.getByRole('button',{name:'Stop accompaniment',exact:true}).click();
+  await page.getByRole('checkbox',{name:'With singer',exact:true}).check();
+  for(const name of ['Made of air','Twinkle, twinkle']) {
+    await page.getByRole('combobox',{name:'Guitar singer song',exact:true}).selectOption(name);
+    await page.getByRole('button',{name:'Play accompaniment',exact:true}).click();
+    await page.waitForTimeout(2200);
+    const duet=await state();
+    if(!(duet?.playing&&duet.voiceRms>1e-6&&duet.rms>.00001))errors.push(`[${tag}-guitar] singer and guitar did not sound together: ${name} ${JSON.stringify(duet)}`);
+    const clocks=[];
+    for(let i=0;i<12;i++){await page.waitForTimeout(100);clocks.push(await state());}
+    const loads=clocks.map(s=>s?.load??1),mean=loads.reduce((a,b)=>a+b,0)/loads.length;
+    if(mean>=.7)errors.push(`[${tag}-guitar] combined load ${(mean*100).toFixed(1)}% exceeds 70%`);
+    const offsets=clocks.map(s=>s!.voiceClock-s!.clock);
+    if(Math.max(...offsets)-Math.min(...offsets)>.004)errors.push(`[${tag}-guitar] singer/guitar clocks drifted`);
+    logs.push(`[${tag}] ${name} combined load ${(mean*100).toFixed(1)}%, levels ${duet?.rms}/${duet?.voiceRms}`);
+    await page.screenshot({path:`${outDir}/${tag}-guitar-singer-${name.startsWith('Made')?'air':'twinkle'}.png`,fullPage:true});
+    await page.getByRole('button',{name:'Stop accompaniment',exact:true}).click();
+  }
+  await page.getByRole('button',{name:'Play accompaniment',exact:true}).click();await page.waitForTimeout(600);
+  await page.getByRole('combobox',{name:'Guitar singer voice',exact:true}).selectOption('female');await page.waitForTimeout(150);
+  if((await state())?.playing)errors.push(`[${tag}-guitar] body switch did not stop performance`);
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))errors.push(`[${tag}-guitar] horizontal overflow`);
+  await page.getByRole('radio',{name:'Play',exact:true}).click();
+  await page.getByRole('radio',{name:'Guitar',exact:true}).click();await page.waitForTimeout(150);
   const reset=await state();
-  if (reset?.held || reset?.rms !== 0) errors.push(`[${tag}-guitar] mode switch did not clear string`);
-  logs.push(`[${tag}] guitar audio: ${JSON.stringify(playing)}, touch: ${JSON.stringify(touched)}`);
+  if(reset?.playing||reset?.strings.some((s:any)=>s.muted)||reset?.rms!==0)errors.push(`[${tag}-guitar] mode switch did not clear playback`);
+  logs.push(`[${tag}] guitar initial audio ${playing?.rms}, two touch mutes passed`);
   await page.close();
 }
 await guitar({width:1440,height:980},"desktop");

@@ -9,7 +9,7 @@ added later from the Rust string model.
 
 | Fixture | What | Test |
 |---|---|---|
-| `guitar.f32` | Rust string: open/fretted plucks, light contact, pull/release and mute at 44.1/48 kHz | `guitar.rs` |
+| `guitar.f32` | Six Rust strings and acoustic body: chords, strums, held mute and stop at 44.1/48 kHz | `guitar.rs` |
 | `geometry.json` | grids, area functions, contacts and outlines for 114 postures | `golden_geometry.rs` |
 | `voice.json`, `voice-*.f32` | human-voice scenarios (timed operations) and their samples | `golden_voice.rs` |
 | `planning.json`, `beatbox-bar.f32` | plans, durations, sung notes, beatbox builds, sequencer, one bar | `golden_planning.rs`, `engine.rs` |

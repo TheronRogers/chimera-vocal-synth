@@ -30,6 +30,8 @@ and the CLI) under a React UI. See the README.
 - **The engine's contract** (`docs/rust-engine.md`): transcendental math only through
   `chimera::math`, no allocation while rendering, output independent of block size. `cargo test`
   enforces each.
+- **Count allocations from the first render**, including guitar plus voice. Warming past the
+  first control step hid lazy airway buffers; `chimera-wasm/tests/realtime.rs` checks cold startup.
 - **Any change to the sound or the plans fails the golden tests, by design.** Re-bless with
   `CHIMERA_BLESS=1 cargo test --workspace --no-fail-fast`, run twice. Guitar and human-voice audio, plans
   (including the beat sounds' gestures and the beat player), the tract geometry and the human

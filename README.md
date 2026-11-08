@@ -47,7 +47,7 @@ bun tools/spectrogram.ts in.wav out.png
 
 ## Docs
 
-- [docs/guitar.md](docs/guitar.md): the first string, finger controls, physical model and checks.
+- [docs/guitar.md](docs/guitar.md): the six-string acoustic guitar, chords, hands, singer accompaniment, and checks.
 - [docs/architecture.md](docs/architecture.md): the acoustic model (FDTD airway, sources,
   anatomy, gestures).
 - [docs/rust-engine.md](docs/rust-engine.md): the engine's real-time and determinism contract,
