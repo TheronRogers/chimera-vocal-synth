@@ -117,7 +117,8 @@ fn guitar_commands_render_and_telemetry_do_not_allocate() {
         engine_guitar(h, 0, 1.0, 0.0, 0.0);
         assert_eq!(allocs() - before, 0, "activation allocated");
         engine_set_gate(h, 0.7);
-        assert_eq!(allocs() - before, 0, "gate allocated");
+        engine_guitar(h,7,1.0,1.0,0.0);
+        assert_eq!(allocs() - before, 0, "gate/atomic grip allocated");
         let records = std::slice::from_raw_parts_mut(engine_guitar_records(h), 2 * GUITAR_EVENT_BYTES);
         for (i, event) in [
             [0.0,0.0,2.0,2.0,0.0,0.0,0.0,1.0,0.8,0.0],

@@ -38,7 +38,8 @@ fn every_string_and_fret_is_in_tune() {
                 let mut v = GuitarVoice::new(fs);
                 v.set_fret(string, fret);
                 v.pluck(string, 0.8);
-                render(&mut v, (fs * 0.06) as usize);
+                // Measure sustained pitch after the coupled body attack has decayed.
+                render(&mut v, (fs * 0.3) as usize);
                 let x = render(&mut v, fft.n);
                 let mut re: Vec<f64> = x.iter().zip(&window).map(|(s, w)| *s as f64 * w).collect();
                 let mut im = vec![0.0; fft.n];
@@ -93,7 +94,7 @@ fn six_strings_ring_and_drive_a_decaying_body() {
 fn held_mute_damps_without_pull_and_does_not_repluck_on_release() {
     let mut v = GuitarVoice::new(48000.0);
     v.pluck(0, 1.0);
-    render(&mut v, 6000);
+    let attack = rms(&render(&mut v, 6000));
     let before = snapshot(&mut v)[TELE_HEADER + 5];
     v.set_mute(0, true);
     v.pluck(0, 1.0);
@@ -103,7 +104,11 @@ fn held_mute_damps_without_pull_and_does_not_repluck_on_release() {
     assert_eq!(muted[TELE_HEADER + 2], 0.0);
     assert!(muted[TELE_HEADER + 5] < before * 0.01);
     v.set_mute(0, false);
-    assert!(rms(&render(&mut v, 4800)) < 0.00001);
+    let tail = rms(&render(&mut v, 4800));
+    assert!(
+        tail < attack * 0.6,
+        "release must not excite a new note; attack={attack}, tail={tail}"
+    );
     v.hard_reset();
     v.set_mute(0, true);
     render(&mut v, 128);
@@ -431,4 +436,93 @@ fn guitar_sound_golden() {
             "guitar sound changed; review before blessing"
         );
     }
+}
+
+#[test]
+fn plate_basis_and_reciprocal_bridge_are_live() {
+    let data = chimera::guitar::body::data();
+    assert_eq!(data.modes.len(), 16);
+    for mode in &data.modes {
+        assert!(mode.hz > 0.0 && mode.hz < 4000.0);
+        assert_eq!(mode.shape.len(), data.nodes.len());
+    }
+    let mut v = GuitarVoice::new(48000.0);
+    v.pluck(0, 0.8);
+    render(&mut v, 12000);
+    let t = snapshot(&mut v);
+    assert!(
+        t[16..48].iter().any(|x| x.abs() > 1e-10),
+        "no soundboard motion"
+    );
+    assert!(t[14].abs() > 1e-12, "no cavity response");
+    assert!(
+        t[TELE_HEADER + STRING_TELE_LEN + 5] > 1e-10,
+        "bridge did not excite an unplucked string"
+    );
+}
+#[test]
+fn articulated_presets_keep_bone_lengths_and_thumb_behind_neck() {
+    use chimera::guitar::geometry::plan;
+    for (frets, fingers) in [
+        ([-1, 3, 2, 0, 1, 0], [0, 3, 2, 0, 1, 0]),
+        ([-1, -1, 0, 2, 3, 2], [0, 0, 0, 1, 3, 2]),
+        ([0, 2, 2, 1, 0, 0], [0, 2, 3, 1, 0, 0]),
+        ([3, 2, 0, 0, 0, 3], [2, 1, 0, 0, 0, 3]),
+        ([-1, 0, 2, 2, 2, 0], [0, 0, 1, 2, 3, 0]),
+        ([-1, 0, 2, 2, 1, 0], [0, 0, 2, 3, 1, 0]),
+        ([-1, -1, 0, 2, 3, 1], [0, 0, 0, 2, 3, 1]),
+        ([0, 2, 2, 0, 0, 0], [0, 2, 3, 0, 0, 0]),
+        ([1, 3, 3, 2, 1, 1], [1, 3, 4, 2, 1, 1]),
+        ([-1, 2, 4, 4, 3, 2], [0, 1, 3, 4, 2, 1]),
+    ] {
+        let p = plan(frets, fingers);
+        assert!(p.valid, "{:?}: {:?}", frets, p.error);
+        assert!(
+            p.fingers
+                .iter()
+                .find(|f| f.finger == 0)
+                .unwrap()
+                .points
+                .last()
+                .unwrap()[2]
+                < -0.04
+        );
+        for f in p.fingers.iter().filter(|f| f.finger > 0) {
+            let lengths = match f.finger {
+                1 => [0.044, 0.026, 0.019],
+                2 => [0.048, 0.029, 0.020],
+                3 => [0.045, 0.028, 0.020],
+                _ => [0.036, 0.023, 0.018],
+            };
+            for (pair, length) in f.points.windows(2).zip(lengths) {
+                let d = (0..3)
+                    .map(|i| (pair[1][i] - pair[0][i]).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
+                assert!((d - length).abs() < 1e-9);
+            }
+        }
+    }
+    assert!(!plan([1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 0, 0]).valid);
+    assert!(!plan([1, 0, 1, 0, 0, 0], [1, 0, 1, 0, 0, 0]).valid);
+}
+
+#[test]
+fn live_grip_waits_for_pressure_and_changes_it_without_repluck() {
+    let mut v = GuitarVoice::new(48000.0);
+    v.set_shape([1, 0, 0, 0, 0, 0], 1.0);
+    v.strum(1, 0.8);
+    assert!(render(&mut v, 4800).iter().all(|x| *x == 0.0));
+    render(&mut v, 1);
+    assert_eq!(snapshot(&mut v)[TELE_HEADER], 1.0);
+    render(&mut v, 2400);
+    assert!(snapshot(&mut v)[TELE_HEADER + 5] > 0.0);
+    v.stop();
+    render(&mut v, 480);
+    v.set_shape([1, 0, 0, 0, 0, 0], 0.1);
+    render(&mut v, 4801);
+    let t = snapshot(&mut v);
+    assert_eq!(t[TELE_HEADER], 0.0);
+    assert!((t[56] - 0.3).abs() < 1e-12);
+    assert_eq!(t[TELE_HEADER + 2], 0.0);
 }

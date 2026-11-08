@@ -59,6 +59,13 @@ fn dispatch(st: &mut State, req: &Value) -> Res {
     match name {
         "version" => Ok(json!({ "layout": crate::LAYOUT_VERSION, "crate": env!("CARGO_PKG_VERSION") })),
         "catalog" => catalog(),
+        "guitarBody" => Ok(serde_json::to_value(chimera::guitar::body::data()).map_err(|e|e.to_string())?),
+        "guitarGeometry" => Ok(serde_json::to_value(chimera::guitar::geometry::geometry()).map_err(|e|e.to_string())?),
+        "guitarHand" => {
+            let frets: [i8;6] = arg(req,"frets")?;
+            let fingers: [u8;6] = arg(req,"fingers")?;
+            Ok(serde_json::to_value(chimera::guitar::geometry::plan(frets,fingers)).map_err(|e|e.to_string())?)
+        },
         // ---------------------------------------------------------------- the anatomy model
         "model" => {
             // the main-thread mirror of the worklet's airway: same topology and node counts

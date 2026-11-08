@@ -14,13 +14,16 @@ export interface PhraseMsg {
 
 export type BodyName = "male" | "female" | "child";
 
-/** Guitar ABI v2: activate, string fret, held mute, string pluck, strum, stop, mix. */
-export type GuitarOp = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+/** Guitar ABI v3: activate, string fret, held mute, string pluck, strum, stop, mix. */
+export type GuitarOp = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export interface GuitarStringTelemetry {
   fret: number; muted: boolean; plucking: boolean; position: number; pull: number;
   envelope: number; rms: number; displacement: Float32Array;
 }
 export interface GuitarTelemetry {
+  contactForces:number[];
+  gripPhase:number; targetFrets:number[];
+  bridge:number; cavity:number; modes:{q:number;velocity:number}[];
   clock: number; rms: number; playing: boolean; step: number; bpm: number; looping: boolean;
   duration: number; playhead: number; bodyEnvelope: number; direction: number; strumTime: number;
   eventCount: number; droppedEvents: number; strings: GuitarStringTelemetry[];

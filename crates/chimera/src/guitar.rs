@@ -1,11 +1,13 @@
 //! Six transverse strings and a reduced acoustic-body model, with bounded audio-clock events.
 //! Fixed grids retain real displacement/contact state; no samples, oscillators or I/O.
 use crate::math;
+pub mod body;
+pub mod geometry;
 
 pub const STRING_COUNT: usize = 6;
 pub const N: usize = 256;
-pub const GUITAR_LAYOUT_VERSION: u32 = 2;
-pub const TELE_HEADER: usize = 16;
+pub const GUITAR_LAYOUT_VERSION: u32 = 3;
+pub const TELE_HEADER: usize = 64;
 pub const STRING_TELE_LEN: usize = 7 + N + 1;
 pub const TELE_LEN: usize = TELE_HEADER + STRING_COUNT * STRING_TELE_LEN;
 pub const CAPACITY: usize = 2048;
@@ -42,7 +44,11 @@ struct StringVoice {
     prev: [f64; N + 1],
     next: [f64; N + 1],
     sub: usize,
+    n: usize,
+    speed: f64,
+    dt: f64,
     lambda2: f64,
+
     damping: f64,
     damping_inverse: f64,
     mute_decay: f64,
@@ -51,6 +57,10 @@ struct StringVoice {
     fret: i8,
     boundary: usize,
     held: bool,
+    pressure: f64,
+    pad_position: usize,
+    pad_omega2: f64,
+    pad_gamma: f64,
     active: bool,
     contact: bool,
     position: usize,
@@ -66,7 +76,8 @@ struct StringVoice {
 impl StringVoice {
     fn new(fs: f64, midi: u8) -> Self {
         let speed = 2.0 * LENGTH * math::midi_to_hz(midi as f64);
-        let sub = ((speed * N as f64 / LENGTH / fs / 0.8).ceil() as usize).max(1);
+        let sub = (96000.0 / fs).ceil().max(2.0) as usize;
+        let n = ((0.7 * fs * sub as f64 * LENGTH / speed).floor() as usize).clamp(32, N);
         let dt = 1.0 / (fs * sub as f64);
         // Equal nominal tension, differing linear densities/gauges across the strings.
         let tension = 68.4;
@@ -75,7 +86,13 @@ impl StringVoice {
             prev: [0.0; N + 1],
             next: [0.0; N + 1],
             sub,
-            lambda2: (speed * dt * N as f64 / LENGTH).powi(2),
+            n,
+            speed,
+            dt,
+            lambda2: (math::sin(math::PI * speed * dt / (2.0 * LENGTH))
+                / math::sin(math::PI / (2.0 * n as f64)))
+            .powi(2),
+
             damping: 1.5 * dt,
             damping_inverse: 1.0 / (1.0 + 1.5 * dt),
             mute_decay: math::exp(-dt / 0.006),
@@ -84,9 +101,13 @@ impl StringVoice {
             fret: 0,
             boundary: 0,
             held: false,
+            pressure: 1.0,
+            pad_position: 0,
+            pad_omega2: 0.0,
+            pad_gamma: 0.0,
             active: false,
             contact: false,
-            position: 205,
+            position: (n as f64 * 0.8).round() as usize,
             pull: 0.0,
             target: 0.0,
             prepare: NO_EVENT,
@@ -104,10 +125,15 @@ impl StringVoice {
         }
         self.fret = fret;
         self.boundary = if self.fret > 0 {
-            (N as f64 * (1.0 - math::pow(2.0, -(self.fret as f64) / 12.0))).round() as usize
+            (self.n as f64 * (1.0 - math::pow(2.0, -(self.fret as f64) / 12.0))).round() as usize
         } else {
             0
         };
+        let frequency =
+            self.speed / (2.0 * LENGTH) * math::pow(2.0, self.fret.max(0) as f64 / 12.0);
+        self.lambda2 = (math::sin(math::PI * frequency * self.dt)
+            / math::sin(math::PI / (2.0 * (self.n - self.boundary) as f64)))
+        .powi(2);
         self.y[..=self.boundary].fill(0.0);
         self.prev[..=self.boundary].fill(0.0);
         self.next[..=self.boundary].fill(0.0);
@@ -141,7 +167,7 @@ impl StringVoice {
         self.prepare = release.saturating_sub(pull_samples);
         self.release = release;
     }
-    fn tick(&mut self, clock: u64, fs: f64) -> (f64, f64) {
+    fn tick(&mut self, clock: u64, fs: f64, bridge: f64) -> (f64, f64) {
         if self.prepare != NO_EVENT && clock >= self.prepare {
             self.prepare = NO_EVENT;
             self.contact = true;
@@ -152,23 +178,39 @@ impl StringVoice {
             self.release = NO_EVENT;
             self.contact = false;
         }
+        if !self.active && bridge.abs() > 1e-15 && !self.held && self.fret >= 0 {
+            self.active = true;
+        }
         if !self.active {
             return (0.0, 0.0);
         }
-        let before = self.y[221];
+        let before = self.y[(self.n as f64 * 0.863).round() as usize];
         let muted = self.held || self.fret < 0;
-        for _ in 0..self.sub {
-            for i in self.boundary + 1..N {
+        self.y[self.n] = if muted { 0.0 } else { bridge };
+        let force = self.tension * (self.y[self.n - 1] - self.y[self.n]) / (LENGTH / self.n as f64);
+        {
+            self.next[self.n] = if muted { 0.0 } else { bridge };
+            for i in self.boundary + 1..self.n {
                 self.next[i] = (2.0 * self.y[i] - (1.0 - self.damping) * self.prev[i]
                     + self.lambda2 * (self.y[i - 1] - 2.0 * self.y[i] + self.y[i + 1]))
                     * self.damping_inverse;
+            }
+            if self.pad_position > self.boundary
+                && self.pad_position < self.n
+                && self.pad_omega2 > 0.0
+            {
+                let i = self.pad_position;
+                let stiffness = 0.5 * self.pad_omega2 * self.dt * self.dt;
+                let loss = self.pad_gamma * self.dt;
+                self.next[i] =
+                    (self.next[i] + (loss - stiffness) * self.prev[i]) / (1.0 + loss + stiffness);
             }
             if self.contact {
                 self.pull += (self.target - self.pull) * self.pull_rate;
                 self.next[self.position] = self.pull;
             }
             if muted {
-                for i in self.boundary + 1..N {
+                for i in self.boundary + 1..self.n {
                     self.next[i] *= self.mute_decay;
                     self.y[i] *= self.mute_decay;
                 }
@@ -180,63 +222,33 @@ impl StringVoice {
         // sample. Absolute sample phase keeps telemetry/render block sizes irrelevant.
         self.envelope *= 0.9995;
         if clock % 8 == 0 {
-            let peak = self.y[self.boundary + 1..N]
+            let peak = self.y[self.boundary + 1..self.n]
                 .iter()
                 .fold(0.0f64, |p, x| p.max(x.abs()));
             self.envelope = self.envelope.max(peak);
         }
-        let pickup = (self.y[221] - before) * fs * 0.15;
+        let pickup = (self.y[(self.n as f64 * 0.863).round() as usize] - before) * fs * 0.15;
         let highpass = pickup - self.dc_x + 0.995 * self.dc_y;
         self.dc_x = pickup;
         self.dc_y = highpass;
         // Pull preparation is mechanical state, not an early audible onset.
         let audio = if self.contact { 0.0 } else { highpass };
-        let force = if self.contact {
-            0.0
-        } else {
-            self.tension * self.y[N - 1] / (LENGTH / N as f64)
-        };
+        let force = if self.contact || muted { 0.0 } else { force };
         self.sum += audio * audio;
-        if self.envelope < 1e-12 && !self.contact && self.release == NO_EVENT {
+        if self.envelope < 1e-12
+            && bridge.abs() < 1e-15
+            && !self.contact
+            && self.release == NO_EVENT
+        {
             self.reset();
         }
         (audio, force)
     }
 }
 
-#[derive(Clone, Copy)]
-struct BodyMode {
-    a: f64,
-    b: f64,
-    gain: f64,
-    weight: f64,
-    y1: f64,
-    y2: f64,
-}
-impl BodyMode {
-    fn new(fs: f64, hz: f64, bandwidth: f64, weight: f64) -> Self {
-        let r = math::exp(-math::PI * bandwidth / fs);
-        let angle = math::TAU * hz / fs;
-        Self {
-            a: 2.0 * r * math::cos(angle),
-            b: -r * r,
-            gain: 2.0 * (1.0 - r) * math::sin(angle),
-            weight,
-            y1: 0.0,
-            y2: 0.0,
-        }
-    }
-    fn tick(&mut self, force: f64) -> f64 {
-        let y = self.a * self.y1 + self.b * self.y2 + self.gain * force;
-        self.y2 = self.y1;
-        self.y1 = if y.abs() < 1e-24 { 0.0 } else { y };
-        y * self.weight
-    }
-}
-
 pub struct GuitarVoice {
     strings: [StringVoice; STRING_COUNT],
-    body: [BodyMode; 8],
+    body: body::Body,
     fs: f64,
     clock: u64,
     pull_samples: u64,
@@ -261,6 +273,10 @@ pub struct GuitarVoice {
     sum: f64,
     count: usize,
     body_envelope: f64,
+    grip_at: u64,
+    grip_start: u64,
+    grip_target: [i8; 6],
+    grip_pressure: f64,
 }
 impl GuitarVoice {
     pub fn new(fs: f64) -> Self {
@@ -271,16 +287,7 @@ impl GuitarVoice {
         };
         Self {
             strings: core::array::from_fn(|i| StringVoice::new(fs, OPEN_MIDI[i])),
-            body: [
-                BodyMode::new(fs, 105.0, 12.0, 1.8),
-                BodyMode::new(fs, 190.0, 18.0, 1.3),
-                BodyMode::new(fs, 290.0, 25.0, 1.0),
-                BodyMode::new(fs, 440.0, 40.0, 0.8),
-                BodyMode::new(fs, 680.0, 60.0, 0.5),
-                BodyMode::new(fs, 1020.0, 90.0, 0.35),
-                BodyMode::new(fs, 1480.0, 130.0, 0.23),
-                BodyMode::new(fs, 2200.0, 190.0, 0.14),
-            ],
+            body: body::Body::new(1.0 / (fs * (96000.0 / fs).ceil().max(2.0))),
             fs,
             clock: 0,
             pull_samples: (fs * PULL_SECONDS).round() as u64,
@@ -305,6 +312,10 @@ impl GuitarVoice {
             sum: 0.0,
             count: 0,
             body_envelope: 0.0,
+            grip_at: 0,
+            grip_start: 0,
+            grip_target: [0; 6],
+            grip_pressure: 1.0,
         }
     }
     pub fn clock(&self) -> f64 {
@@ -313,6 +324,51 @@ impl GuitarVoice {
     pub fn set_fret(&mut self, index: usize, fret: i8) {
         if let Some(s) = self.strings.get_mut(index) {
             s.set_fret(fret);
+        }
+    }
+    /// Atomic clean grip: pressure is normalized preload; low pressure dissipates
+    /// rather than imposing a new hard fret boundary.
+    pub fn set_shape(&mut self, frets: [i8; 6], pressure: f64) {
+        self.grip_pressure = strength_value(pressure);
+        self.set_shape_at(frets, self.clock + (self.fs * 0.1).round() as u64);
+    }
+    fn set_shape_at(&mut self, frets: [i8; 6], deadline: u64) {
+        if self.grip_target == frets
+            && self
+                .strings
+                .iter()
+                .zip(frets)
+                .all(|(s, f)| s.pressure == if f > 0 { self.grip_pressure } else { 0.0 })
+        {
+            return;
+        }
+        self.grip_target = frets;
+        self.grip_start = self.clock;
+        self.grip_at = deadline.max(self.clock);
+    }
+    fn grip_tick(&mut self) {
+        if self.grip_at > 0 && self.clock >= self.grip_at {
+            for (s, f) in self.strings.iter_mut().zip(self.grip_target) {
+                s.pressure = if f > 0 { self.grip_pressure } else { 0.0 };
+                let x = geometry::fret_x(f.max(1));
+                let action = 0.0008 + 0.0012 * x / LENGTH;
+                let required = s.tension * action * (1.0 / x + 1.0 / (LENGTH - x));
+                let ratio = if f > 0 {
+                    (3.0 * s.pressure / required).min(1.0)
+                } else {
+                    0.0
+                };
+                s.pad_position = (((x - 0.006).max(0.0) / LENGTH) * s.n as f64).round() as usize;
+                let mass = s.tension / (s.speed * s.speed) * LENGTH / s.n as f64;
+                s.pad_omega2 = 1000.0 * ratio / mass;
+                s.pad_gamma = 0.4 * s.pad_omega2.sqrt();
+                s.set_fret(if f > 0 && 3.0 * s.pressure < required {
+                    0
+                } else {
+                    f
+                });
+            }
+            self.grip_at = 0;
         }
     }
     pub fn set_mute(&mut self, index: usize, held: bool) {
@@ -330,7 +386,11 @@ impl GuitarVoice {
         }
         if let Some(s) = self.strings.get_mut(index) {
             self.fade = 0;
-            s.schedule(self.clock + self.pull_samples, self.pull_samples, strength);
+            s.schedule(
+                self.clock.max(self.grip_at) + self.pull_samples,
+                self.pull_samples,
+                strength,
+            );
         }
     }
     pub fn strum(&mut self, direction: i8, strength: f64) {
@@ -339,7 +399,11 @@ impl GuitarVoice {
             return;
         }
         self.fade = 0;
-        self.schedule_strum(self.clock + self.pull_samples, direction, strength);
+        self.schedule_strum(
+            self.clock.max(self.grip_at) + self.pull_samples,
+            direction,
+            strength,
+        );
     }
     fn schedule_strum(&mut self, release: u64, direction: i8, strength: f64) {
         if direction == 0 {
@@ -354,7 +418,13 @@ impl GuitarVoice {
             } else {
                 STRING_COUNT - 1 - order
             };
-            if self.strings[index].fret < 0 || self.strings[index].held {
+            if (if self.grip_at > 0 {
+                self.grip_target[index]
+            } else {
+                self.strings[index].fret
+            }) < 0
+                || self.strings[index].held
+            {
                 continue;
             }
             self.strings[index].schedule(
@@ -448,14 +518,13 @@ impl GuitarVoice {
         self.last_strum = -1.0;
     }
     fn clear_sound(&mut self) {
+        self.grip_at = 0;
+        self.grip_target = core::array::from_fn(|i| self.strings[i].fret);
         self.fade = 0;
         for s in &mut self.strings {
             s.reset();
         }
-        for m in &mut self.body {
-            m.y1 = 0.0;
-            m.y2 = 0.0;
-        }
+        self.body.clear();
         self.sum = 0.0;
         self.count = 0;
         self.body_envelope = 0.0;
@@ -466,7 +535,7 @@ impl GuitarVoice {
             .position(|e| (e.direction != 0) == strum)
             .map_or(self.score_len, |i| from + i)
     }
-    fn event_deadline(&self, cursor: usize, cycle: u64, strum: bool) -> (u64, u64) {
+    fn event_deadline(&self, cursor: usize, cycle: u64, _strum: bool) -> (u64, u64) {
         if cursor == self.score_len {
             return (NO_EVENT, NO_EVENT);
         }
@@ -475,11 +544,7 @@ impl GuitarVoice {
             .saturating_add(cycle)
             .saturating_add((self.score[cursor].time * self.fs).round() as u64);
         (
-            if strum {
-                release.saturating_sub(self.pull_samples)
-            } else {
-                release
-            },
+            release.saturating_sub(self.pull_samples.max((self.fs * 0.1).round() as u64)),
             release,
         )
     }
@@ -505,7 +570,7 @@ impl GuitarVoice {
         }
     }
     fn score_tick(&mut self) {
-        if !self.playing {
+        if !self.playing || self.fade > 0 {
             return;
         }
         // Independent cursors let a strum prepare before a simultaneous chord-only event,
@@ -527,12 +592,15 @@ impl GuitarVoice {
             if index == self.score_len {
                 break;
             }
+            // Short external scores may have overlapping anticipation windows.
+            // Finish the earlier grip before planning the following deadline.
+            if self.grip_at > self.clock && release > self.grip_at {
+                break;
+            }
             let event = self.score[index];
             // A late earlier chord must not undo a later strum's prepared fret boundaries.
             if release >= self.fret_event {
-                for (s, fret) in self.strings.iter_mut().zip(event.frets) {
-                    s.set_fret(fret);
-                }
+                self.set_shape_at(event.frets, release);
                 self.fret_event = release;
             }
             self.schedule_strum(release, event.direction, event.strength);
@@ -545,18 +613,21 @@ impl GuitarVoice {
     pub fn render(&mut self, out: &mut [f32]) {
         for sample in out {
             self.score_tick();
-            let (mut pickup, mut force) = (0.0, 0.0);
-            for s in &mut self.strings {
-                let (p, f) = s.tick(self.clock, self.fs);
-                pickup += p;
-                force += f;
+            self.grip_tick();
+            let sub = self.strings[0].sub;
+            let mut value = 0.0;
+            for _ in 0..sub {
+                let mut force = 0.0;
+                let mut pickup = 0.0;
+                for s in &mut self.strings {
+                    let (p, f) = s.tick(self.clock, self.fs * sub as f64, self.body.bridge);
+                    pickup += p;
+                    force += f;
+                }
+                let radiation = self.body.step(force);
+                value += (radiation * 0.2 + pickup * 0.35) / sub as f64;
             }
-            let mut body = 0.0;
-            for mode in &mut self.body {
-                body += mode.tick(force * 0.2);
-            }
-            self.body_envelope = (self.body_envelope * 0.9995).max(body.abs());
-            let mut value = pickup * 0.35 + body * 0.7;
+            self.body_envelope = (self.body_envelope * 0.9995).max(value.abs());
             if self.fade > 0 {
                 value *= self.fade as f64 / self.fade_length.max(1) as f64;
                 self.fade -= 1;
@@ -612,18 +683,45 @@ impl GuitarVoice {
             self.score_len as f64,
             self.dropped as f64,
         ]);
+        out[15] = if self.grip_at > self.grip_start {
+            ((self.clock - self.grip_start) as f64 / (self.grip_at - self.grip_start) as f64)
+                .min(1.0)
+        } else {
+            1.0
+        };
+        for i in 0..6 {
+            out[48 + i] = self.grip_target[i] as f64;
+        }
+        for (i, s) in self.strings.iter().enumerate() {
+            out[56 + i] = if self.grip_target[i] > 0 {
+                3.0 * s.pressure
+            } else {
+                0.0
+            };
+        }
+        out[13] = self.body.bridge;
+        out[14] = self.body.air;
+        for (i, m) in self.body.modes.iter().enumerate() {
+            out[16 + i * 2] = m.q;
+            out[17 + i * 2] = (m.q - m.prev) / self.body.dt;
+        }
         for (i, s) in self.strings.iter_mut().enumerate() {
             let offset = TELE_HEADER + i * STRING_TELE_LEN;
             out[offset..offset + 7].copy_from_slice(&[
                 s.fret as f64,
                 s.held as u8 as f64,
                 s.contact as u8 as f64,
-                s.position as f64 / N as f64,
+                s.position as f64 / s.n as f64,
                 s.pull,
                 s.envelope,
                 rms(s.sum, self.count),
             ]);
-            out[offset + 7..offset + STRING_TELE_LEN].copy_from_slice(&s.y);
+            for j in 0..=N {
+                let x = j as f64 * s.n as f64 / N as f64;
+                let a = x.floor() as usize;
+                let b = (a + 1).min(s.n);
+                out[offset + 7 + j] = s.y[a] + (s.y[b] - s.y[a]) * (x - a as f64);
+            }
             s.sum = 0.0;
         }
         self.sum = 0.0;

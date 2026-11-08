@@ -1,10 +1,10 @@
 import type { GuitarEvent } from "../guitar/model.ts";
 import type { GuitarTelemetry } from "../worklet/protocol.ts";
 
-export const GUITAR_LAYOUT_VERSION = 2;
+export const GUITAR_LAYOUT_VERSION = 3;
 export const GUITAR_EVENT_BYTES = 80;
 export const GUITAR_MAX_EVENTS = 2048;
-export const GUITAR_TELE_HEADER = 16;
+export const GUITAR_TELE_HEADER = 64;
 export const GUITAR_STRING_STRIDE = 264;
 export const GUITAR_TELE_LEN = GUITAR_TELE_HEADER + 6*GUITAR_STRING_STRIDE;
 
@@ -20,6 +20,9 @@ export function writeGuitarEvents(buffer: ArrayBuffer, at: number, events: reado
 export function readGuitarTelemetry(buffer: ArrayBuffer, at: number): GuitarTelemetry {
   const b = new Float64Array(buffer,at,GUITAR_TELE_LEN);
   return {
+    contactForces:Array.from(b.subarray(56,62)),
+    gripPhase:b[15], targetFrets:Array.from(b.subarray(48,54)),
+    bridge:b[13], cavity:b[14], modes:Array.from({length:16},(_,i)=>({q:b[16+i*2],velocity:b[17+i*2]})),
     clock:b[0], rms:b[1], playing:!!b[2], step:b[3], bpm:b[4], looping:!!b[5], duration:b[6], playhead:b[7],
     bodyEnvelope:b[8], direction:b[9], strumTime:b[10], eventCount:b[11], droppedEvents:b[12],
     strings:Array.from({length:6},(_,i) => {

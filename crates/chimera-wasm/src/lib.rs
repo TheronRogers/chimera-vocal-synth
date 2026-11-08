@@ -585,7 +585,7 @@ pub unsafe extern "C" fn engine_score_json(h: *mut Handle) -> u32 {
 
 // Guitar has its own telemetry layout; gesture records are unchanged.
 /// # Safety
-/// h must be a live engine handle. Guitar ABI v2: 0 active, 1 fret(index,fret),
+/// h must be a live engine handle. Guitar ABI v3: 0 active, 1 fret(index,fret),
 /// 2 held mute(index,on), 3 pluck(index,strength), 4 strum(direction,strength), 5 stop, 6 mix.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn engine_guitar(h: *mut Handle, op: u32, a: f64, b: f64, _c: f64) {
@@ -599,6 +599,7 @@ pub unsafe extern "C" fn engine_guitar(h: *mut Handle, op: u32, a: f64, b: f64, 
         4 => h.engine.guitar.strum(if a < 0.0 { -1 } else { 1 },b),
         5 => h.engine.guitar.stop(),
         6 => h.engine.set_guitar_levels(a,b),
+        7 => {if a.is_finite() && a>=0.0 && a<14.0f64.powi(6) && a.fract()==0.0 {let mut code=a as u32;let mut frets=[0i8;6];for f in &mut frets {*f=(code%14) as i8-1;code/=14;}h.engine.guitar.set_shape(frets,b);}},
         _ => {}
     }
 }
