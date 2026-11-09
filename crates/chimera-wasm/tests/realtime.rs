@@ -118,6 +118,10 @@ fn guitar_commands_render_and_telemetry_do_not_allocate() {
         assert_eq!(allocs() - before, 0, "activation allocated");
         engine_set_gate(h, 0.7);
         engine_guitar(h,7,1.0,1.0,0.0);
+        engine_guitar(h,8,1.0,0.5,0.0);
+        for drum in 0..8 { engine_guitar(h,9,drum as f64,0.8,0.0); }
+        engine_guitar(h,9,1.0,0.8,0.28);
+        engine_drum_telemetry(h);
         assert_eq!(allocs() - before, 0, "gate/atomic grip allocated");
         let records = std::slice::from_raw_parts_mut(engine_guitar_records(h), 2 * GUITAR_EVENT_BYTES);
         for (i, event) in [
@@ -140,6 +144,7 @@ fn guitar_commands_render_and_telemetry_do_not_allocate() {
             engine_guitar(h, 6, 0.7, 0.8, 0.0);
             engine_render(h, 128);
             engine_guitar_telemetry(h);
+            engine_drum_telemetry(h);
             assert_eq!(allocs() - before, 0, "guitar render iteration {i} allocated");
         }
         engine_guitar(h, 5, 0.0, 0.0, 0.0);

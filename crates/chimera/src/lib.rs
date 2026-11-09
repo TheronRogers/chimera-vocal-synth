@@ -5,6 +5,7 @@
 //! render bit-identical samples. Voices are `Send` and allocate nothing while rendering.
 
 pub mod guitar;
+pub mod drums;
 pub mod math;
 pub mod physics;
 

@@ -7,6 +7,7 @@
  * reports once; the main thread may build a new node, which restarts playback state.
  */
 import { writeGestures, writeSteps, fromUtf8, utf8, CONTROL_KEYS } from "../wasm/wire.ts";
+import { DRUM_LAYOUT_VERSION, DRUM_TELE_LEN, readDrumTelemetry } from "../wasm/drum-wire.ts";
 import { GUITAR_LAYOUT_VERSION, GUITAR_TELE_LEN, readGuitarTelemetry, writeGuitarEvents } from "../wasm/guitar-wire.ts";
 import type { ToWorklet, FromWorklet, TelemetryMessage } from "./protocol.ts";
 import type { BodyMix, CreatureTelemetry } from "../wasm/types.ts";
@@ -52,6 +53,7 @@ class ChimeraProcessor extends AudioWorkletProcessor {
     super();
     this.x = new WebAssembly.Instance(options.processorOptions.module, {}).exports as unknown as Exports;
     if (this.x.engine_guitar_layout_version() !== GUITAR_LAYOUT_VERSION || this.x.engine_guitar_telemetry_len() !== GUITAR_TELE_LEN) throw new Error("Guitar ABI layout mismatch");
+    if (this.x.engine_drum_layout_version() !== DRUM_LAYOUT_VERSION || this.x.engine_drum_telemetry_len() !== DRUM_TELE_LEN) throw new Error("Drum ABI layout mismatch");
     this.h = this.x.engine_new(sampleRate);
     this.port.onmessage = (e: MessageEvent<ToWorklet>) => {
       if (this.failed) return;
@@ -215,6 +217,7 @@ class ChimeraProcessor extends AudioWorkletProcessor {
     if (this.telemetryOn && !this.failed && ++this.blocks % 6 === 0) {
       try {
         if (this.guitar) {
+          this.post({type:"dtelemetry",t:readDrumTelemetry(this.mem,this.x.engine_drum_telemetry(this.h))});
           const p = this.x.engine_guitar_telemetry(this.h);
           this.post({ type: "gtelemetry", load: this.load, t: readGuitarTelemetry(this.mem,p) });
         }

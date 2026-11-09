@@ -14,11 +14,18 @@ export interface PhraseMsg {
 
 export type BodyName = "male" | "female" | "child";
 
-/** Guitar ABI v3: activate, string fret, held mute, string pluck, strum, stop, mix. */
-export type GuitarOp = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+/** Guitar ABI v3: activate, string fret, held mute, string pluck, strum, stop, mix, grip, drum mix, drum hit. */
+/** op 9: a=surface, b=strength, c=travel lead in seconds (0 means immediate). */
+/** op 10: a=hi-hat pedal travel from released to tight (0–1). */
+export type GuitarOp = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 export interface GuitarStringTelemetry {
   fret: number; muted: boolean; plucking: boolean; position: number; pull: number;
   envelope: number; rms: number; displacement: Float32Array;
+}
+export interface DrumTelemetry {
+  clock: number; enabled: boolean; playing: boolean; bpm: number; start: number; duration: number; looping: boolean;
+  kickCompression: number; hatTravel: number; hatGap: number; hatPressure: number; hatClose: number;
+  rattle: number; next: number[]; last: number[]; strength: number[]; modes: number[][]; wires: number[];
 }
 export interface GuitarTelemetry {
   contactForces:number[];
@@ -78,6 +85,7 @@ export interface CreatureTelemetryMessage {
 }
 
 export type FromWorklet =
+  | { type: "dtelemetry"; t: DrumTelemetry }
   | { type: "gtelemetry"; t: GuitarTelemetry; load: number }
   | { type: "ready"; sampleRate: number; body: BodyMix; nPh: number; nOr: number; creature: string }
   | TelemetryMessage

@@ -47,6 +47,7 @@ pub struct VoiceInfo {
 pub struct Engine {
     pub sample_rate: f64,
     pub guitar: crate::guitar::GuitarVoice,
+    pub drums: crate::drums::RockKit,
     guitar_active: bool,
     guitar_gain: f64,
     singer_gain: f64,
@@ -67,7 +68,7 @@ impl Engine {
     pub fn new(sample_rate: f64) -> Engine {
         crate::init();
         let body = BodyMix::MALE;
-        Engine { sample_rate, guitar: crate::guitar::GuitarVoice::new(sample_rate), guitar_active: false,
+        Engine { sample_rate, guitar: crate::guitar::GuitarVoice::new(sample_rate), guitar_active: false, drums: crate::drums::RockKit::new(sample_rate),
             guitar_gain: 0.7, singer_gain: 0.8, guitar_scratch: [0.0; SUB_BLOCK],
             body, voice: Self::make_voice(sample_rate, body), gate_level: 0.0, pos: 0, scratch: Vec::with_capacity(MAX_SCHEDULE), beat: BeatPlayer::new(), creature: None }
     }
@@ -216,7 +217,7 @@ impl Engine {
     }
 
     pub fn set_guitar(&mut self, active: bool) {
-        if self.guitar_active != active { self.guitar.hard_reset(); }
+        if self.guitar_active != active { self.guitar.hard_reset(); self.drums.stop(); }
         self.guitar_active = active;
     }
 
@@ -242,7 +243,7 @@ impl Engine {
             if self.guitar_active {
                 self.guitar.render(&mut self.guitar_scratch[..n]);
                 for (sample, guitar) in out[i..i + n].iter_mut().zip(&self.guitar_scratch[..n]) {
-                    let mix = *sample as f64 * self.singer_gain + *guitar as f64 * self.guitar_gain;
+                    let mix = *sample as f64 * self.singer_gain + *guitar as f64 * self.guitar_gain + self.drums.sample();
                     *sample = if mix.is_finite() { mix.clamp(-1.0, 1.0) as f32 } else { 0.0 };
                 }
             }

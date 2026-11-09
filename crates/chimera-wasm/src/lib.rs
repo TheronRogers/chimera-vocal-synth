@@ -120,6 +120,7 @@ pub fn write_gesture(g: &Gesture, b: &mut [u8]) {
 /// An engine and the buffers JavaScript reads and writes.
 pub struct Handle {
     engine: Engine,
+    drum_tele: [f64; chimera::drums::DRUM_TELE_LEN],
     guitar_tele: [f64; chimera::guitar::TELE_LEN],
     guitar_records: Vec<u8>,
     guitar_events: Vec<chimera::guitar::GuitarEvent>,
@@ -143,6 +144,7 @@ pub struct Handle {
 pub extern "C" fn engine_new(sample_rate: f64) -> *mut Handle {
     let mut h = Box::new(Handle {
         engine: Engine::new(sample_rate),
+        drum_tele: [0.0; chimera::drums::DRUM_TELE_LEN],
         guitar_tele: [0.0; chimera::guitar::TELE_LEN],
         guitar_records: vec![0; GUITAR_MAX_EVENTS * GUITAR_EVENT_BYTES],
         guitar_events: Vec::with_capacity(GUITAR_MAX_EVENTS),
@@ -588,7 +590,7 @@ pub unsafe extern "C" fn engine_score_json(h: *mut Handle) -> u32 {
 /// h must be a live engine handle. Guitar ABI v3: 0 active, 1 fret(index,fret),
 /// 2 held mute(index,on), 3 pluck(index,strength), 4 strum(direction,strength), 5 stop, 6 mix.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn engine_guitar(h: *mut Handle, op: u32, a: f64, b: f64, _c: f64) {
+pub unsafe extern "C" fn engine_guitar(h: *mut Handle, op: u32, a: f64, b: f64, c: f64) {
     let h = handle!(h);
     let index = if a.is_finite() && (0.0..6.0).contains(&a) && a.fract() == 0.0 { Some(a as usize) } else { None };
     match op {
@@ -597,7 +599,10 @@ pub unsafe extern "C" fn engine_guitar(h: *mut Handle, op: u32, a: f64, b: f64, 
         2 => if let Some(i) = index { h.engine.guitar.set_mute(i,b.is_finite() && b != 0.0); },
         3 => if let Some(i) = index { h.engine.guitar.pluck(i,b); },
         4 => h.engine.guitar.strum(if a < 0.0 { -1 } else { 1 },b),
-        5 => h.engine.guitar.stop(),
+        5 => { h.engine.guitar.stop(); h.engine.drums.stop(); },
+        8 => h.engine.drums.set(a.is_finite() && a != 0.0,b),
+        9 => if let Some(i) = (a.is_finite() && a >= 0.0 && a < 8.0 && a.fract() == 0.0).then_some(a as usize) { if c.is_finite() && c > 0.0 {h.engine.drums.queue_hit(i,b,c);} else {h.engine.drums.hit(i,b);} },
+        10 => h.engine.drums.set_hat_pedal(a),
         6 => h.engine.set_guitar_levels(a,b),
         7 => {if a.is_finite() && a>=0.0 && a<14.0f64.powi(6) && a.fract()==0.0 {let mut code=a as u32;let mut frets=[0i8;6];for f in &mut frets {*f=(code%14) as i8-1;code/=14;}h.engine.guitar.set_shape(frets,b);}},
         _ => {}
@@ -636,10 +641,22 @@ pub unsafe extern "C" fn engine_guitar_schedule(h: *mut Handle, n: usize, lead: 
     }
     let start = h.engine.guitar.clock() + if lead.is_finite() { lead.clamp(0.0,10.0) } else { 0.0 };
     h.engine.guitar.load_score(&h.guitar_events,start,duration,looping != 0,bpm);
+    h.engine.drums.schedule(h.engine.guitar.clock(),start,duration,looping != 0,bpm);
 }
 /// # Safety
 /// h must be a live engine handle. Returns TELE_LEN doubles, copied before another call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn engine_guitar_telemetry(h: *mut Handle) -> *const f64 {
     let h = handle!(h); h.engine.guitar.telemetry(&mut h.guitar_tele); h.guitar_tele.as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn engine_drum_layout_version() -> u32 { chimera::drums::DRUM_LAYOUT_VERSION }
+#[unsafe(no_mangle)]
+pub extern "C" fn engine_drum_telemetry_len() -> usize { chimera::drums::DRUM_TELE_LEN }
+/// # Safety
+/// h must be a live engine handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_drum_telemetry(h: *mut Handle) -> *const f64 {
+    let h=handle!(h); h.engine.drums.telemetry(&mut h.drum_tele); h.drum_tele.as_ptr()
 }

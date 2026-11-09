@@ -44,7 +44,7 @@ fn main() {
             1000.0 * dt / (n / 128) as f64
         );
     }
-    for singer in [false, true] {
+    for (singer, drummer) in [(false,false), (true,false), (true,true)] {
         let fs = 48000.0;
         let mut engine = Engine::new(fs);
         engine.set_guitar(true);
@@ -75,6 +75,10 @@ fn main() {
             true,
             120.0,
         );
+        if drummer {
+            engine.drums.set(true,0.5);
+            engine.drums.schedule(0.0,0.03,0.5,true,120.0);
+        }
         let secs = 4.0;
         let blocks = (fs * secs) as usize / 128;
         let mut out = [0.0; 128];
@@ -85,7 +89,9 @@ fn main() {
         let dt = t0.elapsed().as_secs_f64();
         println!(
             "six-string guitar{}: {:.1}% of one core in real time ({:.2} ms per 128-sample block)",
-            if singer {
+            if drummer {
+                " + singer + physical drums"
+            } else if singer {
                 " + singer"
             } else {
                 " (singer silent)"

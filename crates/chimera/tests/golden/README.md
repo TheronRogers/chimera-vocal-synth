@@ -9,6 +9,7 @@ added later from the Rust string model.
 
 | Fixture | What | Test |
 |---|---|---|
+| `drums.f32` | Physical drum membranes, snare wires and metal plates at 44.1/48 kHz; native/wasm parity | `drums.rs`, `tests/drums.test.ts` |
 | `guitar.f32` | Six Rust strings and acoustic body: chords, strums, held mute and stop at 44.1/48 kHz | `guitar.rs` |
 | `geometry.json` | grids, area functions, contacts and outlines for 114 postures | `golden_geometry.rs` |
 | `voice.json`, `voice-*.f32` | human-voice scenarios (timed operations) and their samples | `golden_voice.rs` |
