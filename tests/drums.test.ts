@@ -41,3 +41,23 @@ test("queued pad strikes expose prediction, physical head displacement and snare
   x.engine_guitar(h,5,0,0,0);expect(tele().wires.every(v=>v===0)).toBe(true);
   expect(tele().next.every(v=>v<0)).toBe(true);x.engine_free(h);
 });
+
+test("constrained sticks approach the struck surfaces across the supported groove tempos",async()=>{
+  const {DrummerMotion,DRUM_SURFACES,drumHand}=await import("../src/ui/render/drummer-motion.ts");
+  type X={memory:WebAssembly.Memory}&Record<string,(...args:number[])=>number>;
+  for(const bpm of [40,120,200]) {
+    const x=new WebAssembly.Instance(wasmModule,{}).exports as X,h=x.engine_new(48000);
+    x.engine_guitar(h,0,1,0,0);x.engine_guitar(h,8,1,.5,0);x.engine_guitar_schedule(h,0,.35,240/bpm,1,bpm);
+    const rig=new DrummerMotion();let last=Array(8).fill(-1);
+    for(let frame=0;frame<180;frame++) {
+      const t=readDrumTelemetry(x.memory.buffer,x.engine_drum_telemetry(h)),arms=rig.update(t,t.clock,1/60);
+      for(let id=1;id<8;id++)if(t.last[id]>=0&&t.last[id]!==last[id]) {
+        const s=DRUM_SURFACES[id],p=arms[drumHand(id)].tip;
+        expect(Math.abs(p.y-s.position[1]-s.depth/2)).toBeLessThan(.07);
+        expect(Math.hypot(p.x-s.position[0],p.z-s.position[2])).toBeLessThan(s.radius);
+      }
+      last=t.last;for(let block=0;block<5;block++)x.engine_render(h,160);
+    }
+    x.engine_free(h);
+  }
+});

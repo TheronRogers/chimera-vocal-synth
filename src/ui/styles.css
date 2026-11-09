@@ -2904,6 +2904,7 @@ input[type="range"]::-moz-range-thumb {
 .guitar-progression button { min-height: 44px; }
 .guitar-singer-toggle { display: flex; align-items: center; gap: 12px; min-height: 44px; }
 .guitar-singer-toggle input { width: 20px; height: 20px; accent-color: var(--green); }
+.guitar-singer-toggle input[type="range"] { flex: 1; min-width: 0; }
 .guitar-song-controls { display: flex; flex-wrap: wrap; gap: 16px; }
 .guitar-song-controls label { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .guitar-song-controls select { max-width: 100%; }

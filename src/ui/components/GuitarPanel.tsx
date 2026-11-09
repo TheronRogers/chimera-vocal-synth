@@ -31,6 +31,8 @@ export function GuitarPanel() {
     if(ok) {
       const s=useGuitar.getState();
       engine.guitar(6,s.guitarLevel,s.singerLevel);
+      engine.guitar(8,s.drummer?1:0,s.drumLevel);
+      engine.guitar(10,s.hatPedal);
       if(!s.playing)applyChord();
     }
     return ok;
@@ -71,14 +73,14 @@ export function GuitarPanel() {
   const choose=(frets:Frets)=>{g.setChord(fingerChord(frets));void ready();};
   return <div className="guitar-workspace">
     <div className={`guitar-performance${g.singer?" with-singer":""}`}>
-    <Screen title={g.singer?"Performer":"Acoustic guitar"} sub={g.singer?"One voice · six strings":"Six strings · two hands"} className="s-guitar">
+    <Screen title={g.drummer?"Rock band":g.singer?"Performer":"Acoustic guitar"} sub={g.drummer?"Physical strings · membranes · metal":g.singer?"One voice · six strings":"Six strings · two hands"} className="s-guitar">
       <div className="guitar-instrument">
         <div className="guitar-status" role="status">
           <span className="guitar-chord-name">{shown.name}</span>
           <span>{tele?.playing?`Bar ${Math.floor(beat/4)+1} · beat ${Math.floor(beat%4)+1}`:"Ready to play"}</span>
           <span>{held.length?`${held.length} string${held.length===1?"":"s"} muted`:"Touch holds a string quiet"}</span>
         </div>
-        <GuitarView3D chord={g.chord} singer={g.singer} onEngage={engage} onRelease={id=>mute(id,null)}/>
+        <GuitarView3D chord={g.chord} singer={g.singer} drummer={g.drummer} onEngage={engage} onRelease={id=>mute(id,null)}/>
         <div className="guitar-controls">
           <Chip tone="slot2" toggle={false} onClick={()=>void strum(1)}>Strum down ↓</Chip>
           <Chip tone="slot2" toggle={false} onClick={()=>void strum(-1)}>Strum up ↑</Chip>
@@ -120,6 +122,7 @@ export function GuitarPanel() {
           {g.chord.frets.some((f,i)=>f>0&&!g.chord.fingers?.[i])&&<p className="dim">Amber contacts exceed four fretting fingers; the custom chord still plays.</p>}
           <div className="guitar-mix">
             <label>Guitar <input aria-label="Guitar level" type="range" min={0} max={1} step={.01} value={g.guitarLevel} onChange={e=>g.setLevels(Number(e.target.value),g.singerLevel)}/></label>
+            <label>Drums <input aria-label="Drum level" type="range" min={0} max={1} step={.01} value={g.drumLevel} onChange={e=>g.setDrumLevel(Number(e.target.value))}/></label>
             <label>Singer <input aria-label="Singer level" type="range" min={0} max={1} step={.01} value={g.singerLevel} onChange={e=>g.setLevels(g.guitarLevel,Number(e.target.value))}/></label>
           </div>
         </div>
@@ -150,6 +153,19 @@ export function GuitarPanel() {
           </ol>
           <Chip toggle={false} disabled={g.progression.length>=32} onClick={()=>useGuitar.setState({progression:[...g.progression,{chord:g.chord,beats:4}]})}>Add current chord</Chip>
           <p className="dim">{g.playing?"Tempo, rhythm, and progression edits play on the next start.":g.singer?"The progression follows the song, repeating as needed.":"The progression loops until stopped."}</p>
+          <label className="guitar-singer-toggle"><input type="checkbox" checked={g.drummer} onChange={e=>g.setDrummer(e.target.checked)}/> With drummer · rock kit</label>
+          <p className="dim">Kick, snare, two rack toms, floor tom, hi-hat, crash and ride. The drummer follows the accompaniment tempo.</p>
+          <div className="guitar-controls" role="group" aria-label="Play drum kit">{["Kick","Snare","High tom","Low tom","Floor tom","Hi-hat","Crash","Ride"].map((name,i)=><Chip key={name} toggle={false} disabled={!g.drummer} onClick={()=>{void ready().then(ok=>{if(ok)engine.guitar(9,i,.8,.28);});}}>{name}</Chip>)}</div>
+          <label className="guitar-singer-toggle">
+            Hi-hat pedal
+            <input aria-label="Hi-hat pedal" aria-valuetext={g.hatPedal < .65 ? "Open" : g.hatPedal < .9 ? "Closed" : "Tight"}
+              type="range" min={0} max={1} step={.01} value={g.hatPedal} disabled={!g.drummer}
+              onChange={e => {
+                g.setHatPedal(Number(e.target.value));
+                if (!started) void ready();
+              }} />
+            <span className="dim">{g.hatPedal < .65 ? "Open" : g.hatPedal < .9 ? "Closed" : "Tight"}</span>
+          </label>
           <label className="guitar-singer-toggle"><input type="checkbox" checked={g.singer} onChange={e=>g.setSinger(e.target.checked)}/> With singer</label>
           {g.singer&&<div className="guitar-song-controls">
             <label>Song <select aria-label="Guitar singer song" value={g.song} onChange={e=>g.setSong(e.target.value)}>{DEMO_SONGS.map(s=><option key={s.name}>{s.name}</option>)}</select></label>

@@ -7,7 +7,7 @@ for tests and the `chimera` CLI.
 
 ## What it does
 
-- **Guitar**: six physical strings, an inspectable 3D acoustic guitar, articulated hands,
+- **Guitar**: a physical rock drum kit and animated drummer, six physical strings, an inspectable 3D acoustic guitar, articulated hands,
   chord presets and accompaniment with an optional singer. Space strums; hold a string near
   the bridge or its Mute button to damp it. Coupled soundboard and cavity motion drives the audio.
 - **Play**: drag the tongue, lips and jaw in a live cutaway of the head; vowel pad, encoders,

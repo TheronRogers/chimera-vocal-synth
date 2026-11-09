@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { V } from "../colors.ts";
 import { frettingArm, pickingArm, pickingPose, performerShoulder, PERFORMER_GUITAR_TILT, PERFORMER_GUITAR_DROP } from "../render/guitar-hand.ts";
 import { interpolateHand } from "../render/hand-palm.ts";
 import { ArticulatedHand } from "../render/articulated-hand.ts";
+import { Drummer } from "../render/drummer.ts";
 import { GuitarPerformer } from "../render/guitar-performer.ts";
 import { useModel } from "../useModel.ts";
 import { useStore } from "../store.ts";
@@ -25,16 +27,17 @@ interface Geometry {
 }
 /** Actual scene projection owns hit tests. A mute never transfers to another string. */
 export function GuitarView3D(
-  { chord, singer = false, onEngage, onRelease }: {
+  { chord, singer = false, drummer = false, onEngage, onRelease }: {
     chord: Chord;
     singer?: boolean;
+    drummer?: boolean;
     onEngage: (id: string, i: number) => void;
     onRelease: (id: string) => void;
   },
 ) {
   const ref = useRef<HTMLCanvasElement>(null),
-    live = useRef({ chord, singer, onEngage, onRelease });
-  live.current = { chord, singer, onEngage, onRelease };
+    live = useRef({ chord, singer, drummer, onEngage, onRelease });
+  live.current = { chord, singer, drummer, onEngage, onRelease };
   const model = useModel();
   const action = useRef<(back: boolean) => void>(() => {});
   const [failed, setFailed] = useState(false);
@@ -50,13 +53,18 @@ export function GuitarView3D(
       setFailed(true);
       return;
     }
-    renderer.setClearColor(0x02080a);
+    renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+    renderer.setClearColor(0x000000);
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     const scene = new THREE.Scene(), root = new THREE.Group(), bodyRoot = new THREE.Group();
     bodyRoot.rotation.z = Math.PI;
     scene.add(root, bodyRoot);
     const performer = new GuitarPerformer();
     bodyRoot.add(performer.group);
+    const drums = new Drummer();
+    drums.group.position.set(.68,-.51,-.35);
+    scene.add(drums.group);
+    drums.group.visible = drummer;
     performer.group.visible = singer;
     const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 10),
       controls = new OrbitControls(camera, canvas);
@@ -64,19 +72,31 @@ export function GuitarView3D(
     controls.minDistance = .3;
     controls.maxDistance = 2.5;
     const g = call<Geometry>("guitarGeometry");
-    const blue = new THREE.MeshStandardMaterial({
-        color: 0x10242c,
-        roughness: .8,
-      }),
-      neckMat = new THREE.MeshStandardMaterial({ color: 0x18232b }),
-      skin = new THREE.MeshStandardMaterial({ color: 0x263d47, roughness: .8 });
-    scene.add(new THREE.HemisphereLight(0xc5e9ff, 0x152329, 3));
-    const light = new THREE.DirectionalLight(0xffffff, 3);
-    light.position.set(.2, -.4, 1);
-    scene.add(light);
+    // Match the vocalist's unlit, translucent anatomy lines. Max blending keeps
+    // overlapping wires from bleaching the joints and soundboard to white.
+    function wire(color: string, opacity: number) {
+      return new THREE.MeshBasicMaterial({
+        color: new THREE.Color(color).convertLinearToSRGB().multiplyScalar(opacity),
+        wireframe: true, transparent: true,
+        depthTest: false, depthWrite: false, toneMapped: false,
+        blending: THREE.CustomBlending, blendEquation: THREE.MaxEquation,
+        blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+      });
+    }
+    const blue = wire(V.blueMid, .42),
+      neckMat = wire(V.blue, .55),
+      skin = wire(V.blue, .48);
+    // Flat shells need contours, not the long fan diagonals of their fill mesh.
+    const shell = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
     const geometries: THREE.BufferGeometry[] = [],
-      materials: THREE.Material[] = [blue, neckMat, skin];
-    const outlineMat = new THREE.LineBasicMaterial({ color: 0x47859b });
+      materials: THREE.Material[] = [blue, neckMat, skin, shell];
+    const outlineMat = new THREE.LineBasicMaterial({
+      color: new THREE.Color(V.blue).convertLinearToSRGB().multiplyScalar(.75),
+      transparent: true,
+      depthTest: false, depthWrite: false, toneMapped: false,
+      blending: THREE.CustomBlending, blendEquation: THREE.MaxEquation,
+      blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+    });
     materials.push(outlineMat);
     function mesh(
       geometry: THREE.BufferGeometry,
@@ -85,7 +105,7 @@ export function GuitarView3D(
       outline = true,
     ) {
       geometries.push(geometry);
-      const m = new THREE.Mesh(geometry, material);
+      const m = new THREE.Mesh(geometry, outline ? shell : material);
       parent.add(m);
       if (outline) {
         const edges = new THREE.EdgesGeometry(geometry, 35);
@@ -192,13 +212,12 @@ export function GuitarView3D(
     box(-.075, 0, -.018, .15, .065, .018);
     const bridge = box(g.scale, 0, .008, .028, .080, .016),
       saddle = box(g.scale, 0, .019, .004, .058, .007);
-    const metal = new THREE.MeshStandardMaterial({
-      color: 0x738d93,
-      metalness: .65,
-      roughness: .3,
-    });
+    const metal = wire(V.blue, .8);
     materials.push(metal);
-    const amber = new THREE.LineBasicMaterial({ color: 0xdab35c });
+    const amber = new THREE.LineBasicMaterial({
+      color: new THREE.Color(V.amber).convertLinearToSRGB(),
+      depthTest: false, depthWrite: false, toneMapped: false,
+    });
     materials.push(amber);
     const strings: THREE.Line[] = [];
     const sy = (i: number, x: number) =>
@@ -251,7 +270,14 @@ export function GuitarView3D(
       root.position.set(-.58, 0, 0).sub(new THREE.Vector3(.58, 0, 0).applyQuaternion(root.quaternion));
       root.updateMatrixWorld(true);
       bodyRoot.updateMatrixWorld(true);
-      controls.maxDistance = live.current.singer ? 6 : 2.5;
+      controls.maxDistance = live.current.singer || live.current.drummer ? 8 : 2.5;
+      if (live.current.drummer) {
+        camera.up.set(0,1,0);
+        const aspect=Math.max(.3,canvas.clientWidth/Math.max(1,canvas.clientHeight));
+        const distance=Math.max(3.3,1.25/(Math.tan(camera.fov*Math.PI/360)*aspect));
+        camera.position.set(.12,.75,back?-distance:distance);
+        controls.target.set(.12,.10,-.12); controls.update(); return;
+      }
       if (live.current.singer) {
         camera.up.set(0, 1, 0);
         const aspect = Math.max(.3, canvas.clientWidth / Math.max(1, canvas.clientHeight));
@@ -314,13 +340,15 @@ export function GuitarView3D(
     let raf = 0;
     let previousWidth = 0;
     let previousSinger = singer;
+    let previousDrummer = drummer;
     let lastFrame = performance.now();
     function frame() {
       const now = performance.now(), frameDt = Math.min(.1, (now - lastFrame) / 1000);
       lastFrame = now;
       const w = canvas.clientWidth, h = canvas.clientHeight;
       if (w && h) {
-        if (previousSinger !== live.current.singer) {
+        if (previousSinger !== live.current.singer || previousDrummer !== live.current.drummer) {
+          previousDrummer = live.current.drummer;
           previousSinger = live.current.singer;
           home(false);
           if (targetPlan) buildHand(targetPlan);
@@ -338,6 +366,11 @@ export function GuitarView3D(
           previousWidth = w;
         }
         const t = engine.latestGuitar;
+        drums.group.visible = live.current.drummer;
+        const drumTele=engine.latestDrums;
+        const drumClock=(drumTele?.clock??0)+Math.min(.05,Math.max(0,(now-engine.latestDrumsAt)/1000));
+        drums.update(drumTele,drumClock,frameDt);
+        canvas.dataset.drummer=String(live.current.drummer);
         const frets = (t?.targetFrets ?? live.current.chord.frets) as Frets;
         const key = frets.join(",");
         if (key !== handKey) {
@@ -431,6 +464,7 @@ export function GuitarView3D(
       ) canvas.removeEventListener(event, up as EventListener);
       controls.dispose();
       performer.dispose();
+      drums.dispose();
       frettingRig.dispose();
       pickingRig.dispose();
       geometries.forEach((g) => g.dispose());
@@ -460,7 +494,7 @@ export function GuitarView3D(
         <canvas
           ref={ref}
           role="img"
-          aria-label={singer ? "3D singer and guitarist as one performer. Drag to orbit; hold a string near the bridge to mute." : "3D acoustic guitar and articulated hands. Drag to orbit; hold a string near the bridge to mute."}
+          aria-label={drummer ? (singer ? "3D singer and guitarist as one performer with a drummer and rock drum set. Drag to orbit; hold a string near the bridge to mute." : "3D guitarist with a drummer and rock drum set. Drag to orbit; hold a string near the bridge to mute.") : singer ? "3D singer and guitarist as one performer. Drag to orbit; hold a string near the bridge to mute." : "3D acoustic guitar and articulated hands. Drag to orbit; hold a string near the bridge to mute."}
         />
       </div>
       {failed && (

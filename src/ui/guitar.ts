@@ -12,6 +12,9 @@ interface GuitarState {
   pattern: StrumPattern;
   bpm: number;
   singer: boolean;
+  drummer: boolean;
+  drumLevel: number;
+  hatPedal: number;
   song: string;
   playing: boolean;
   starting: boolean;
@@ -19,6 +22,9 @@ interface GuitarState {
   singerLevel: number;
   error: string | null;
   setChord: (chord: Chord) => void;
+  setDrummer: (on: boolean) => void;
+  setDrumLevel: (level: number) => void;
+  setHatPedal: (travel: number) => void;
   setSong: (song: string) => void;
   setSinger: (on: boolean) => void;
   setLevels: (guitar: number, singer: number) => void;
@@ -32,6 +38,9 @@ export const useGuitar = create<GuitarState>((set,get) => ({
   pattern: DEFAULT_PATTERN,
   bpm: 84,
   singer: false,
+  drummer: true,
+  drumLevel: .5,
+  hatPedal: .8,
   song: DEMO_SONGS[0].name,
   playing: false,
   starting: false,
@@ -39,6 +48,12 @@ export const useGuitar = create<GuitarState>((set,get) => ({
   singerLevel: 0.8,
   error: null,
   setChord: chord => { const plan=handPlan(chord);set({draft:chord,error:plan.valid?null:plan.error});if(plan.valid){set({chord});applyChord(chord);} },
+  setDrummer: drummer => { set({drummer}); engine.guitar(8,drummer?1:0,get().drumLevel); },
+  setDrumLevel: drumLevel => { set({drumLevel}); engine.guitar(8,get().drummer?1:0,drumLevel); },
+  setHatPedal: hatPedal => {
+    set({ hatPedal });
+    engine.guitar(10, hatPedal);
+  },
   setSong: song => {
     const demo = DEMO_SONGS.find(s => s.name === song);
     if (!demo) return;
@@ -79,6 +94,8 @@ export async function playGuitar(ready: () => Promise<void>, body: () => BodyMix
     if (!active()) throw new Error("Guitar audio could not start.");
     const live=useGuitar.getState();
     engine.guitar(6,live.guitarLevel,live.singerLevel);
+    engine.guitar(8,live.drummer?1:0,live.drumLevel);
+    engine.guitar(10,live.hatPedal);
     const song = DEMO_SONGS.find(d => d.name === s.song)!;
     const beats = s.singer ? song.notes.reduce((sum,n) => sum+n[1],0) : undefined;
     for(const step of s.progression){const pose=handPlan(step.chord);if(!pose.valid)throw new Error(`${step.chord.name}: ${pose.error}`);}

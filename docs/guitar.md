@@ -154,3 +154,54 @@ zero errors in 256 views across eight viewport sizes; 20 pre-existing truncation
 remain in other screens. Native guitar-plus-singer cost measured 29.3% of one core versus
 36.5% before this change on this machine. Browser contacts remain synthetic; no physical
 touch hardware or measured-instrument listening comparison was performed.
+
+## Rock drummer
+
+With drummer adds a seated 3D player and an eight-surface rock kit: kick, snare,
+two rack toms, floor tom, hi-hat, crash, and ride. Drum buttons audition each surface;
+the Drums slider sets its level. Play accompaniment starts an eighth-note rock groove
+with kick on 1/3 (plus the & of 3), snare on 2/4, and a crash at each bar.
+The native sample clock schedules drums with the guitar, including lead-in and looping.
+Stop all, leaving Guitar, and body changes clear the kit; disabling the drummer silences it.
+
+`crates/chimera/src/drums.rs` uses damped second-order modal resonators. Drum frequencies
+come from circular membrane roots, radius, tension and areal mass. Bronze cymbal modes use
+thin-plate bending stiffness and inharmonic modal spacing. Unilateral head contact excites
+a bank of 24 snare-wire resonances with distinct contact gaps and a reaction on the head.
+Finite contact pulses replace instantaneous impulses, and weak membrane tension hardening
+and velocity-sensitive radiation give the drums a more defined attack. Cymbals use 64
+inharmonic plate modes with frequency-dependent radiation and a deterministic broadband
+wash that approximates energy scattering into unresolved modes. The closed hi-hat has a
+short wash, the crash blooms after the attack, and the ride retains a lighter stick ping.
+The cymbal model resolves plate modes and approximates the remaining spectrum statistically.
+The renderer uses a constrained motion rig.
+
+The drummer uses 290/250 mm upper arms/forearms, elbow flexion limited to 12–140°, a
+bounded shoulder cone (125° elevation, 145 mm backward reach and 190 mm medial reach
+at the elbow), and wrist bends capped at 75°. Hands travel at no more than 2.4 m/s with
+32 m/s² acceleration; stick lengths stay fixed. A stable outward/downward elbow pole avoids
+hinge flips. The open-handed kit layout keeps the hats reachable without crossing the arms.
+The 400 mm thigh/shin pairs are solved to the pedal positions, including during presses.
+These are limits for this generic rig, not a model of a particular player's range of motion.
+The sticks sit diagonally across the curled fingers and exit at the thumb and index.
+The arm positions each wrist, then wrist rotation drives the downstroke and rebound.
+Manual pad strikes reserve 280 ms for hand travel, with same-hand queued strikes spaced by
+at least 120 ms. The motion rig blends continuously through new targets, stops and frame drops.
+
+Dedicated versioned drum telemetry carries future/actual strike times, membrane modes and
+24 wire displacements from the audio engine. These drive the hands and snare wires. Drumhead waves spread from the center toward the
+fixed rim, with a delayed response on the opposite head. Cymbal rims flex around their fixed
+bells, with a short hi-hat response, a wider crash swing, and a firmer ride. The motion is
+slowed and exaggerated for visibility at display frame rates.
+
+The kick pedal pulls its beater toward the rear head on each scheduled stroke. At impact,
+a damped felt contact model transfers the beater's momentum to the head. The beater rebounds
+while the head continues vibrating. The hi-hat pedal travels from open through contact to
+tight. Travel closes the gap between the plates, then increases their contact pressure.
+Higher pressure damps both the plate modes and the wash. First contact produces an audible
+chick and a visible shake without moving either stick.
+
+`tests/drums.rs` checks decay, bounded samples, exact lead-in and block independence.
+`tests/drums.test.ts` compares native and wasm output against `golden/drums.f32` at
+44.1/48 kHz. `tests/drummer-motion.test.ts` checks limb lengths, joint limits,
+continuous hands/sticks, speed/acceleration, pedal poses and head/wire animation. The cold-start allocation test includes all drum surfaces and the groove.
