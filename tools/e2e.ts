@@ -216,7 +216,11 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
   }, paired);
   await page.locator('.guitar-instrument p').first().click();
   await page.keyboard.press("Space");
-  await page.waitForTimeout(350);
+  // Cold worklet setup can outlast a fixed delay. Wait for the first audible frame.
+  await page.waitForFunction(() => {
+    // @ts-expect-error debug handle
+    return window.__chimeraEngine?.latestGuitar?.rms > .001;
+  }, undefined, { timeout: 4000 }).catch(() => {});
   const playing=await state();
   if(!(playing&&playing.rms>.001&&playing.strings.length===6)) errors.push(`[${tag}-guitar] first keyboard strum failed: ${JSON.stringify(playing)}`);
   await page.getByRole('button',{name:'Stop all',exact:true}).click();
