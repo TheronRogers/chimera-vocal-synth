@@ -455,6 +455,7 @@ fn plate_basis_and_reciprocal_bridge_are_live() {
         "no soundboard motion"
     );
     assert!(t[14].abs() > 1e-12, "no cavity response");
+    assert!(t[62].abs() > 1e-12, "no back plate motion");
     assert!(
         t[TELE_HEADER + STRING_TELE_LEN + 5] > 1e-10,
         "bridge did not excite an unplucked string"
@@ -605,4 +606,82 @@ fn live_grip_waits_for_pressure_and_changes_it_without_repluck() {
     assert_eq!(t[TELE_HEADER], 0.0);
     assert!((t[56] - 0.3).abs() < 1e-12);
     assert_eq!(t[TELE_HEADER + 2], 0.0);
+}
+
+#[test]
+fn stroke_telemetry_follows_the_pending_grip_and_cancels_muted_contacts() {
+    let mut v = GuitarVoice::new(48000.0);
+    v.set_fret(0, -1);
+    v.set_shape([0, -1, 0, 0, 0, 0], 1.0);
+    v.set_mute(3, true);
+    v.strum(1, 0.8);
+    let t = snapshot(&mut v);
+    let times = &t[64..70];
+    assert_eq!(times[1], -1.0);
+    assert_eq!(times[3], -1.0);
+    assert!((times[2] - times[0] - 0.008).abs() < 1e-12);
+    assert!((times[4] - times[2] - 0.008).abs() < 1e-12);
+    render(&mut v, 6001);
+    assert!(snapshot(&mut v)[TELE_HEADER + 6] > 0.0);
+
+    v.strum(-1, 0.8);
+    let t = snapshot(&mut v);
+    assert!((t[64] - t[69] - 0.024).abs() < 1e-12);
+    v.set_mute(4, true);
+    assert_eq!(snapshot(&mut v)[68], -1.0);
+    v.stop();
+    assert_eq!(&snapshot(&mut v)[64..70], &[-1.0; 6]);
+}
+
+#[test]
+fn instrument_presets_change_tone_independently_and_preserve_held_mutes() {
+    use chimera::guitar::instrument::{BODIES, STRINGS};
+
+    let strum = |body, strings| {
+        let mut voice = GuitarVoice::new(48000.0);
+        voice.set_mute(5, true);
+        voice.set_instrument(body, strings);
+        render(&mut voice, 2);
+        voice.strum(1, 0.65);
+        let audio = render(&mut voice, 24000);
+        assert!(audio.iter().all(|x| x.is_finite() && x.abs() < 1.0));
+        assert!(rms(&audio) > 0.01);
+        assert_eq!(snapshot(&mut voice)[TELE_HEADER + 5 * STRING_TELE_LEN + 1], 1.0);
+        audio
+    };
+
+    // First-difference energy relative to signal energy weights high harmonics
+    // and rejects gain changes. Compare the tail after every string has released.
+    let brightness = |audio: &[f32]| {
+        let tail = &audio[7200..];
+        let energy = tail.windows(2).map(|pair| (pair[1] as f64 - pair[0] as f64).powi(2))
+            .sum::<f64>();
+        (energy / tail.len() as f64).sqrt() / rms(tail)
+    };
+    let reference = strum(0, 0);
+    let reference_rms = rms(&reference);
+    for body in 1..BODIES.len() {
+        let audio = strum(body, 0);
+        let level = rms(&audio);
+        let difference = audio.iter().zip(&reference)
+            .map(|(a, b)| (*a as f64 / level - *b as f64 / reference_rms).powi(2))
+            .sum::<f64>();
+        assert!((difference / audio.len() as f64).sqrt() > 0.18, "body {body}");
+    }
+
+    // With the same strings, flat tops should retain more attack and brightness
+    // than the classical and archtop voicings.
+    let mellow = brightness(&strum(4, 0)).max(brightness(&strum(5, 0)));
+    for body in 0..4 {
+        let bright = brightness(&strum(body, 0));
+        assert!(bright > mellow * 1.10, "body {body}: {bright} vs {mellow}");
+    }
+
+    let string_brightness: Vec<_> = (0..STRINGS.len())
+        .map(|strings| brightness(&strum(0, strings)))
+        .collect();
+    assert!(string_brightness[1] > string_brightness[0] * 1.08, "{string_brightness:?}");
+    for strings in [2, 3, 4] {
+        assert!(string_brightness[strings] < string_brightness[0] * 0.92, "{string_brightness:?}");
+    }
 }

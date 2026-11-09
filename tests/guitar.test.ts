@@ -20,7 +20,9 @@ test("six-string guitar score and human mix match native audio byte for byte", (
   ];
   for(const fs of [44100,48000]) {
     const h=x.engine_new(fs);
-    x.engine_guitar(h,0,1,0,0);x.engine_set_gate(h,.7);
+    x.engine_guitar(h,0,1,0,0);
+    if(fs===48000)x.engine_guitar(h,11,5,4,0);
+    x.engine_set_gate(h,.7);
     writeGuitarEvents(x.memory.buffer,x.engine_guitar_records(h),events);
     x.engine_guitar_schedule(h,3,.05,.6,1,100);
     for(let block=0;block<280;block++) {

@@ -7,6 +7,9 @@ fn main() {
         let h = engine_new(fs);
         unsafe {
             engine_guitar(h, 0, 1.0, 0.0, 0.0);
+            if fs == 48000.0 {
+                engine_guitar(h, 11, 5.0, 4.0, 0.0);
+            }
             engine_set_gate(h, 0.7);
             let records = std::slice::from_raw_parts_mut(engine_guitar_records(h), 3 * GUITAR_EVENT_BYTES);
             for (i, values) in [

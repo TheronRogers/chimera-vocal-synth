@@ -587,8 +587,8 @@ pub unsafe extern "C" fn engine_score_json(h: *mut Handle) -> u32 {
 
 // Guitar has its own telemetry layout; gesture records are unchanged.
 /// # Safety
-/// h must be a live engine handle. Guitar ABI v3: 0 active, 1 fret(index,fret),
-/// 2 held mute(index,on), 3 pluck(index,strength), 4 strum(direction,strength), 5 stop, 6 mix.
+/// h must be a live engine handle. Guitar ABI: 0 active, 1 fret(index,fret),
+/// 2 held mute(index,on), 3 pluck(index,strength), 4 strum(direction,strength), 5 stop, 6 mix, 11 instrument(body, strings).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn engine_guitar(h: *mut Handle, op: u32, a: f64, b: f64, c: f64) {
     let h = handle!(h);
@@ -603,6 +603,9 @@ pub unsafe extern "C" fn engine_guitar(h: *mut Handle, op: u32, a: f64, b: f64, 
         8 => h.engine.drums.set(a.is_finite() && a != 0.0,b),
         9 => if let Some(i) = (a.is_finite() && a >= 0.0 && a < 8.0 && a.fract() == 0.0).then_some(a as usize) { if c.is_finite() && c > 0.0 {h.engine.drums.queue_hit(i,b,c);} else {h.engine.drums.hit(i,b);} },
         10 => h.engine.drums.set_hat_pedal(a),
+        11 if a >= 0.0 && b >= 0.0 && a.fract() == 0.0 && b.fract() == 0.0 => {
+            h.engine.guitar.set_instrument(a as usize, b as usize);
+        },
         6 => h.engine.set_guitar_levels(a,b),
         7 => {if a.is_finite() && a>=0.0 && a<14.0f64.powi(6) && a.fract()==0.0 {let mut code=a as u32;let mut frets=[0i8;6];for f in &mut frets {*f=(code%14) as i8-1;code/=14;}h.engine.guitar.set_shape(frets,b);}},
         _ => {}

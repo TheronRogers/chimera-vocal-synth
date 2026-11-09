@@ -60,6 +60,10 @@ fn dispatch(st: &mut State, req: &Value) -> Res {
         "version" => Ok(json!({ "layout": crate::LAYOUT_VERSION, "crate": env!("CARGO_PKG_VERSION") })),
         "catalog" => catalog(),
         "guitarBody" => Ok(serde_json::to_value(chimera::guitar::body::data()).map_err(|e|e.to_string())?),
+        "guitarInstruments" => Ok(json!({
+            "bodies": chimera::guitar::instrument::BODIES,
+            "strings": chimera::guitar::instrument::STRINGS,
+        })),
         "guitarGeometry" => Ok(serde_json::to_value(chimera::guitar::geometry::geometry()).map_err(|e|e.to_string())?),
         "guitarHand" => {
             let frets: [i8;6] = arg(req,"frets")?;

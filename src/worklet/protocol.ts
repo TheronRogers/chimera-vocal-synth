@@ -17,7 +17,7 @@ export type BodyName = "male" | "female" | "child";
 /** Guitar ABI v3: activate, string fret, held mute, string pluck, strum, stop, mix, grip, drum mix, drum hit. */
 /** op 9: a=surface, b=strength, c=travel lead in seconds (0 means immediate). */
 /** op 10: a=hi-hat pedal travel from released to tight (0–1). */
-export type GuitarOp = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+export type GuitarOp = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
 export interface GuitarStringTelemetry {
   fret: number; muted: boolean; plucking: boolean; position: number; pull: number;
   envelope: number; rms: number; displacement: Float32Array;
@@ -29,8 +29,9 @@ export interface DrumTelemetry {
 }
 export interface GuitarTelemetry {
   contactForces:number[];
+  strokeReleases:number[];
   gripPhase:number; targetFrets:number[];
-  bridge:number; cavity:number; modes:{q:number;velocity:number}[];
+  bridge:number; cavity:number; back:number; modes:{q:number;velocity:number}[];
   clock: number; rms: number; playing: boolean; step: number; bpm: number; looping: boolean;
   duration: number; playhead: number; bodyEnvelope: number; direction: number; strumTime: number;
   eventCount: number; droppedEvents: number; strings: GuitarStringTelemetry[];
