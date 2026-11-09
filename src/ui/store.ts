@@ -11,7 +11,7 @@ import { stopSpeaking } from "./speech.ts";
 import { connectMidi, disconnectMidi, type MidiStatus } from "./midi.ts";
 import { stopGuitar } from "./guitar.ts";
 
-export type Mode = "play" | "speak" | "sing" | "bestiary" | "beatbox" | "guitar";
+export type Mode = "play" | "speak" | "sing" | "bestiary" | "beatbox" | "guitar" | "drums";
 
 export interface BeatState {
   steps: (BeatStep | null)[];
@@ -100,9 +100,11 @@ export function creatureKeyHz(midi: number, p: Pick<ParamDef, "min" | "max">): n
   return Math.min(p.max, f);
 }
 
+const instrumentMode = (mode: Mode) => mode === "guitar" || mode === "drums";
+
 function updateGate(s: { hold: boolean; heldNotes: number[]; mode: Mode; keyCall: string | null }) {
   // keys that trigger calls leave the breath to the call; sung notes breathe by themselves
-  const keysBreathe = !(s.mode === "bestiary" && s.keyCall) && s.mode !== "sing" && s.mode !== "guitar";
+  const keysBreathe = !(s.mode === "bestiary" && s.keyCall) && s.mode !== "sing" && !instrumentMode(s.mode);
   engine.gate(s.hold || (keysBreathe && s.heldNotes.length > 0) ? 1 : 0);
 }
 
@@ -133,14 +135,15 @@ export const useStore = create<State>((set, get) => ({
   hold: false,
   heldNotes: [],
   view: { pressure: true, particles: true, grid: false, calipers: true, threeD: false },
-  mode: "play",
+  mode: "guitar",
   setMode: (m) => {
     const prev = get().mode;
     if (prev === m) return;
-    if (prev === "guitar" || m === "guitar") {
+    if (instrumentMode(prev) || instrumentMode(m)) {
       stopGuitar();
-      engine.guitar(0, m === "guitar" ? 1 : 0);
+      engine.guitar(0, instrumentMode(m) ? 1 : 0);
       engine.latestGuitar = null;
+      engine.latestDrums = null;
       set({ hold: false });
       stopSpeaking(); stopSinging(); engine.stopCall();
       get().setBeatPlaying(false); engine.setMic(false);
@@ -254,7 +257,7 @@ export const useStore = create<State>((set, get) => ({
         // anything set before audio existed was not delivered: send the whole state now
         const s = get();
         engine.setVolume(s.volume);
-        if (s.mode === "guitar") engine.guitar(0, 1);
+        if (instrumentMode(s.mode)) engine.guitar(0, 1);
         if (!sameBody(s.body, PRESETS.male)) engine.setBody(s.body);
         engine.setSource(s.source);
         engine.setArtic(s.artic, s.tipFree);

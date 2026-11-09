@@ -63,8 +63,8 @@ export function frettingArm(plan: HandPlan, shoulder = new Vector3(.42, -.035, -
 export const FINGER_LENGTHS = [[.044,.026,.019],[.048,.029,.020],[.045,.028,.020],[.036,.023,.018]] as const;
 
 /** A right pick grip; -1 reflects the entire anatomy to make the left hand. */
-export function pickingPose(handedness: 1 | -1 = 1, deviation = 0, travel = 0) {
-  const wrist = new Vector3(.65, -.040 + travel, .070);
+export function pickingPose(handedness: 1 | -1 = 1, deviation = 0, tip?: Vector3) {
+  const wrist = new Vector3(.65, -.040, .070);
   const rotation = new Quaternion().setFromAxisAngle(new Vector3(0,0,1), Math.PI/3)
     .multiply(new Quaternion().setFromAxisAngle(new Vector3(1,0,0), .04 + deviation));
   const point = (p: Vector3) => p.clone().setX(p.x * handedness).applyQuaternion(rotation).add(wrist);
@@ -104,10 +104,53 @@ export function pickingPose(handedness: 1 | -1 = 1, deviation = 0, travel = 0) {
   const knuckles = new Vector3();
   fingers.filter(f=>f.finger>0).forEach(f=>knuckles.add(new Vector3(...f.points[0])));
   knuckles.multiplyScalar(.25);
+  if (tip) {
+    const shift = tip.clone().sub(pick[2]);
+    wrist.add(shift);
+    knuckles.add(shift);
+    grip.add(shift);
+    pick.forEach(p => p.add(shift));
+    for (const finger of fingers) {
+      finger.points = finger.points.map(p => new Vector3(...p).add(shift).toArray());
+    }
+  }
   return {wrist,forward,side,normal,palmForward:forward,palmSide:side,palmNormal:normal,knuckles,fingers,pick,grip,pickNormal,rotation};
+}
+
+/** Interpolate the pick tip through the audio engine's string release points. */
+export function strokeTip(clock: number, releases: readonly number[], stringPoint: (index: number) => Vector3, idle: Vector3) {
+  const contacts = releases.flatMap((time, index) => time >= 0 ? [{time, index}] : [])
+    .sort((a, b) => a.time - b.time);
+  if (!contacts.length) return idle;
+  const first = contacts[0];
+  const last = contacts[contacts.length - 1];
+  const lift = .022;
+  const lead = .025;
+  const recovery = .075;
+  if (clock < first.time - lead || clock > last.time + recovery) return idle;
+  if (clock <= first.time) {
+    const phase = (clock - first.time + lead) / lead;
+    const tip = idle.clone().lerp(stringPoint(first.index), phase);
+    tip.z += lift * Math.sin(Math.PI * phase);
+    return tip;
+  }
+  for (let i = 1; i < contacts.length; i++) {
+    const from = contacts[i - 1], to = contacts[i];
+    if (clock > to.time) continue;
+    const phase = (clock - from.time) / (to.time - from.time);
+    const tip = stringPoint(from.index).lerp(stringPoint(to.index), phase);
+    if (Math.abs(to.index - from.index) > 1) tip.z += lift * Math.sin(Math.PI * phase);
+    return tip;
+  }
+  const phase = (clock - last.time) / recovery;
+  const tip = stringPoint(last.index).lerp(idle, phase);
+  tip.z += lift * Math.sin(Math.PI * phase);
+  return tip;
 }
 
 /** The right elbow rests by the upper bout, with the forearm reaching toward the soundhole. */
 export function pickingArm(pose: ReturnType<typeof pickingPose>, shoulder = performerShoulder(.74)) {
-  return solveArm(shoulder,pose.wrist,new Vector3(.82,-.26,.12));
+  // Move the elbow outside the upper bout as the wrist reaches inward.
+  const reach = Math.max(0, Math.min(1, (.64 - pose.wrist.x) / .04));
+  return solveArm(shoulder, pose.wrist, new Vector3(.82, -.26 - .16 * reach, .12));
 }

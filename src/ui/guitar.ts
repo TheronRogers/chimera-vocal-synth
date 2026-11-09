@@ -6,6 +6,8 @@ import { DEMO_SONGS, playDemo, stopSinging, tickSinging, useSing } from "./singi
 import type { BodyMix } from "./body.ts";
 
 interface GuitarState {
+  bodyProfile: number;
+  stringProfile: number;
   chord: Chord;
   draft: Chord;
   progression: ProgressionStep[];
@@ -32,13 +34,15 @@ interface GuitarState {
 
 /** Session state survives navigation; audio ownership is cleared by stopGuitar. */
 export const useGuitar = create<GuitarState>((set,get) => ({
+  bodyProfile: 0,
+  stringProfile: 0,
   chord: CHORDS.find(c => c.name === "Em")!,
   draft: CHORDS.find(c => c.name === "Em")!,
   progression: DEFAULT_PROGRESSION,
   pattern: DEFAULT_PATTERN,
   bpm: 84,
   singer: false,
-  drummer: true,
+  drummer: false,
   drumLevel: .5,
   hatPedal: .8,
   song: DEMO_SONGS[0].name,
@@ -68,6 +72,18 @@ export const useGuitar = create<GuitarState>((set,get) => ({
   setLevels: (guitarLevel,singerLevel) => { set({guitarLevel,singerLevel}); engine.guitar(6,guitarLevel,singerLevel); },
 }));
 
+export function applyInstrument(): void {
+  const {bodyProfile, stringProfile} = useGuitar.getState();
+  engine.guitar(11, bodyProfile, stringProfile);
+}
+
+export function chooseInstrument(bodyProfile: number, stringProfile: number): void {
+  stopGuitar();
+  useGuitar.setState({bodyProfile, stringProfile});
+  applyInstrument();
+  applyChord();
+}
+
 export function applyChord(chord = useGuitar.getState().chord): void {
   engine.guitar(7,packFrets(chord),1);
 }
@@ -93,6 +109,7 @@ export async function playGuitar(ready: () => Promise<void>, body: () => BodyMix
     if (run !== token) return;
     if (!active()) throw new Error("Guitar audio could not start.");
     const live=useGuitar.getState();
+    applyInstrument();
     engine.guitar(6,live.guitarLevel,live.singerLevel);
     engine.guitar(8,live.drummer?1:0,live.drumLevel);
     engine.guitar(10,live.hatPedal);

@@ -8,8 +8,9 @@ import { V } from "../colors.ts";
 import { PERFORMER_GUITAR_DROP } from "./guitar-hand.ts";
 
 /** Guitar coordinates are metres, with -y up; anatomy is centimetres, +x forward. */
-export class GuitarPerformer {
+export class Performer {
   readonly group = new THREE.Group();
+  readonly headMount = new THREE.Group();
   readonly head = new Anatomy3D();
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly material = new THREE.LineBasicMaterial({
@@ -33,14 +34,16 @@ export class GuitarPerformer {
     this.word.center.set(0,.5);
     this.word.visible=false;
     this.group.add(this.word);
-    const mount = new THREE.Group();
+    const mount = this.headMount;
     // A head above the shoulder midpoint, facing out from the soundboard.
     mount.position.set(.58, -.135 - PERFORMER_GUITAR_DROP, -.18);
-    mount.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+    const orientation = new THREE.Group();
+    orientation.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
       new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, -1, 0), new THREE.Vector3(1, 0, 0),
     ));
-    mount.scale.setScalar(.01);
-    mount.add(this.head.scene);
+    orientation.scale.setScalar(.01);
+    orientation.add(this.head.scene);
+    mount.add(orientation);
     this.group.add(mount);
 
     const line = (points: THREE.Vector3[]) => {

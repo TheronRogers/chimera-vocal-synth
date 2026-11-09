@@ -11,12 +11,12 @@ export const DRUM_SURFACES = [
   {position:[-.32,.98,.38], radius:.23, depth:0},
   {position:[.43,.91,.32], radius:.26, depth:0},
 ];
-export const ARM = {upper:.29, forearm:.25, minFlex:12*Math.PI/180, maxFlex:140*Math.PI/180,
+export const ARM = {upper:.29, forearm:.24, minFlex:12*Math.PI/180, maxFlex:140*Math.PI/180,
   maxWrist:75*Math.PI/180, speed:2.4, acceleration:32, stick:.28};
 const UP=new THREE.Vector3(0,1,0);
 const clamp=THREE.MathUtils.clamp;
 export const drumHand=(id:number)=>[2,5,6].includes(id)?0:1;
-export const shoulder=(side:number)=>new THREE.Vector3(side*.19,.85,-.27);
+export const shoulder=(side:number)=>new THREE.Vector3(side*.16,.85,-.27);
 export function shoulderAllowed(upper:THREE.Vector3,side:number):boolean {
   return upper.y<=ARM.upper*.574+1e-8 && upper.z>=-.145-1e-8 && side*upper.x>=-.19-1e-8;
 }

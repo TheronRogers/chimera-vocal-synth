@@ -28,6 +28,7 @@ async function run(viewport: { width: number; height: number }, tag: string) {
   await page.goto(url, { waitUntil: "networkidle" });
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${outDir}/${tag}-0-idle.png` });
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
   const startBtn = page.getByRole("button", { name: /breathe in and start/i });
   await startBtn.click();
   await page.waitForTimeout(1800);
@@ -200,7 +201,8 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
   const page = await browser.newPage({ viewport, hasTouch: true });
   page.on("pageerror", e => errors.push(`[${tag}-guitar] ${e.message}`));
   await page.goto(url, { waitUntil: "networkidle" });
-  await page.getByRole("radio", { name: "Guitar", exact: true }).click();
+  if (!await page.getByRole("radio", { name: "Guitar", exact: true }).isChecked())
+    errors.push(`[${tag}-guitar] Guitar is not selected on startup`);
   const state = (paired = false) => page.evaluate(async (paired) => {
     // @ts-expect-error debug handle
     const e = window.__chimeraEngine;
@@ -279,7 +281,7 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
   await page.getByRole('spinbutton',{name:'Guitar tempo',exact:true}).fill('120');
   await page.getByRole('button',{name:'Stop accompaniment',exact:true}).click();
   await page.getByRole('checkbox',{name:'With singer',exact:true}).check();
-  await page.waitForFunction(()=>document.querySelector<HTMLCanvasElement>('.guitar-canvas canvas')?.dataset.performer==='true');
+  await page.waitForFunction(()=>document.querySelector<HTMLCanvasElement>('.guitar-canvas canvas')?.dataset.singer==='true');
   const framing=await canvas.evaluate(c=>({tip:JSON.parse((c as HTMLCanvasElement).dataset.headstock!),w:c.clientWidth,h:c.clientHeight}));
   if(framing.tip[0]<0||framing.tip[0]>framing.w||framing.tip[1]<0||framing.tip[1]>framing.h)
     errors.push(`[${tag}-guitar] combined performer clips the headstock`);
@@ -326,6 +328,29 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
   logs.push(`[${tag}] guitar initial audio ${playing?.rms}, two touch mutes passed`);
   await page.close();
 }
+async function drums() {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  page.on("pageerror", e => errors.push(`[drums] ${e.message}`));
+  await page.goto(url, { waitUntil: "networkidle" });
+  await page.getByRole("radio", { name: "Drums", exact: true }).click();
+  await page.getByRole("img", { name: /3D drummer/ }).waitFor();
+  await page.getByRole("button", { name: "Snare", exact: true }).click();
+  await page.waitForFunction(() => {
+    // @ts-expect-error debug handle
+    return window.__chimeraEngine?.latestDrums?.last[1] >= 0;
+  });
+  await page.getByRole("button", { name: "Stop drums", exact: true }).click();
+  await page.waitForFunction(() => {
+    // @ts-expect-error debug handle
+    return window.__chimeraEngine?.latestDrums?.last[1] === -1;
+  });
+  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth))
+    errors.push("[drums] horizontal overflow");
+  await page.screenshot({ path: `${outDir}/mobile-drums.png`, fullPage: true });
+  await page.close();
+}
+
+await drums();
 await guitar({width:1440,height:980},"desktop");
 await guitar({width:390,height:844},"mobile");
 

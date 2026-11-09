@@ -31,8 +31,9 @@ The optional singer shares its timeline and output. Sing mode remains voice-only
 - Both hands use the same articulated carpal, metacarpal and phalange renderer and mirrored
   anatomical proportions. The strumming thumb opposes the curled index finger around a
   triangular pick; the other fingers curl naturally. Its elbow rests beside the guitar's
-  upper bout, with the wrist aligned toward the soundhole. Audio-clock strokes drive wrist
-  motion while the grip and bone lengths stay fixed.
+  upper bout, with the wrist aligned toward the soundhole. The pick tip follows the
+  audio clock through each string's release point. It lifts over skipped and held-muted
+  strings while the grip and bone lengths stay fixed.
 - The four finger metacarpals keep fixed lengths and a common palm axis. Knuckle anchors
   retain their order and spacing when fingers curl; the thumb's existing first link is its
   metacarpal. Chord transitions keep the phalange lengths and constrain each hinge throughout.
@@ -45,9 +46,16 @@ The optional singer shares its timeline and output. Sing mode remains voice-only
   radii throughout both stroke directions, including the instrument-only view.
 - Live grips take 100 ms on the audio clock; live strokes wait for the grip. The display
   interpolates fixed-length bone directions with clearance lift. Scheduled grips settle at
-  their score deadline. Picking motion follows audio-clock strum telemetry.
-- The Vibration checkbox displays physical soundboard modal displacement amplified ×12.
-  This amplification changes the drawing only.
+  their score deadline.
+- **Body** selects dreadnought, parlor, concert/OM, jumbo, classical, or a hollow
+  archtop with two f-holes. A body change loads its suggested string set. **Strings**
+  lets you override it with medium bronze, light phosphor bronze, silk and steel,
+  nylon, or flatwound steel. Changes stop the current performance and retain the chord.
+  All presets share the same scale length and standard tuning.
+- **Show body vibration** exaggerates the soundboard and back plate displacement for
+  visibility. Amber on the soundboard follows the strength of its vibration, and the ring
+  at the soundhole shows air moving in and out. Orbit the guitar to see the back flex.
+  The display gain changes the drawing only.
 
 ## Accompaniment
 
@@ -97,18 +105,33 @@ All playback timing is advanced by audio samples, not browser timers.
 
 Bridge reaction drives sixteen mass-normalized soundboard modes, and their reciprocal
 bridge motion drives string endpoints, including unplucked strings. A lumped cavity and
-soundhole oscillator exchanges pressure work with plate volume displacement. The output
-mixes plate/soundhole radiation with a direct string-velocity component. Physical modal
-coordinates drive the displayed soundboard mesh; a scalar envelope never generates its motion.
+soundhole oscillator exchange pressure work with the soundboard and the back's lowest
+bending mode. The output sums their signed volume velocities at the same timestep, then
+mixes in a direct string-velocity component. The soundboard mesh moves with the same
+modal coordinates used to compute its radiated sound.
 
 `bun tools/gen-guitar-body.ts` (after `bun run wasm`) generates the spatial basis and
 coefficients from the shared Rust outline using a 16-function Rayleigh–Ritz reduction on a
 coarse orthotropic plate with a soundhole and X-brace stiffness. Generic spruce parameters:
 density 430 kg/m³, thickness 2.8 mm, longitudinal modulus 10 GPa, transverse modulus 0.8 GPa,
 and shear modulus 0.6 GPa. The cavity is 16 litres with an effective soundhole length of
-85 mm. Bridge participation is reduced by 0.05 to represent the stiff distributed saddle;
-mode damping is `3 + 0.025 × frequency` per second. These are design assumptions, not a fit
-to a measured instrument. Back and sides are rigid. No samples or measured IRs are used.
+85 mm. Bridge participation is scaled by 0.05 to represent the stiff distributed saddle.
+Mode damping is `3 + 0.025 × frequency` per second. The back mode uses 220 Hz, an
+effective mass of 160 g and an effective area of 0.055 m². These are generic design
+parameters. The sides are rigid.
+
+The body presets reuse the reduced modal basis with different top and back frequencies,
+plate losses, cavity volumes, effective port areas and frequency-dependent bridge coupling. The archtop draws a curved plate
+with f-holes and interpolates the display shapes where the flat top had a round port.
+String profiles vary per-string tension and damping at fixed pitch. A spatial velocity
+loss damps short wavelengths faster, so light bronze keeps more upper harmonics while
+nylon, silk and steel, and flatwound sets shed them more quickly. The model adds
+winding loss to the core material loss on the four wound steel strings or the
+three wound basses of the nylon set. The body radiation
+has greater weight in the mix so the selected guitar's resonances come through.
+The steel-string flat tops also emphasize the upper part of the direct string signal
+to bring out the attack.
+These are generic acoustic approximations.
 
 The model retains one transverse polarization. Contact compliance is a localized linear spring/damper around static
 preload rather than nonlinear soft tissue dynamics. Hand clearance is sampled,
@@ -124,11 +147,12 @@ frets, direction, strength, and progression step. `engine_guitar_schedule` recei
 count, lead, duration, loop flag and BPM. The worklet schedules voice gestures and guitar
 records in one message before rendering, with a common lead. Voice gesture records are unchanged.
 
-Guitar telemetry is versioned and length-checked: 1648 doubles, a 64-value header and six
+Guitar telemetry is versioned and length-checked: 1654 doubles, a 70-value header and six
 264-value string records. The header reports clock, RMS, transport, body envelope and strum
-state, bridge/cavity displacement, transition phase, sixteen modal displacement/velocity pairs,
-target frets, and contact forces. Each string reports fret, mute, excitation, position, pull, envelope, RMS and 257
-physical displacements. Human and guitar telemetry are both copied and retained. Geometry
+state, bridge, cavity and back displacement, transition phase, sixteen modal displacement/velocity pairs,
+target frets, contact forces, and six string release times for the latest strum. Each
+string reports fret, mute, excitation, position, pull, envelope, RMS and 257 physical
+displacements. Human and guitar telemetry are both copied and retained. Geometry
 snapshots and envelopes are drawing data; UI polling never determines audio timing.
 
 Rust tests cover pitch, muting, decay, body stability, strum timing and order, score loops,
@@ -157,12 +181,14 @@ touch hardware or measured-instrument listening comparison was performed.
 
 ## Rock drummer
 
-With drummer adds a seated 3D player and an eight-surface rock kit: kick, snare,
-two rack toms, floor tom, hi-hat, crash, and ride. Drum buttons audition each surface;
-the Drums slider sets its level. Play accompaniment starts an eighth-note rock groove
+The Drums view shows a seated 3D player with the same head, torso and arm geometry as the
+guitarist. The eight kit pads audition kick, snare, two rack toms, floor tom, hi-hat, crash,
+and ride. The view also has a level control and a hi-hat pedal.
+
+In Guitar, With drummer adds the player and kit to the scene. Play accompaniment starts an eighth-note rock groove
 with kick on 1/3 (plus the & of 3), snare on 2/4, and a crash at each bar.
 The native sample clock schedules drums with the guitar, including lead-in and looping.
-Stop all, leaving Guitar, and body changes clear the kit; disabling the drummer silences it.
+Stop all, leaving Guitar, and body changes clear the accompaniment. Disabling the drummer silences it.
 
 `crates/chimera/src/drums.rs` uses damped second-order modal resonators. Drum frequencies
 come from circular membrane roots, radius, tension and areal mass. Bronze cymbal modes use
@@ -176,7 +202,7 @@ short wash, the crash blooms after the attack, and the ride retains a lighter st
 The cymbal model resolves plate modes and approximates the remaining spectrum statistically.
 The renderer uses a constrained motion rig.
 
-The drummer uses 290/250 mm upper arms/forearms, elbow flexion limited to 12–140°, a
+The drummer uses 290/240 mm upper arms/forearms, elbow flexion limited to 12–140°, a
 bounded shoulder cone (125° elevation, 145 mm backward reach and 190 mm medial reach
 at the elbow), and wrist bends capped at 75°. Hands travel at no more than 2.4 m/s with
 32 m/s² acceleration; stick lengths stay fixed. A stable outward/downward elbow pole avoids

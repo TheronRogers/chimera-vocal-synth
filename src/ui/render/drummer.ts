@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { ArticulatedArm } from "./articulated-hand.ts";
 import { V } from "../colors.ts";
 import type { DrumTelemetry } from "../../worklet/protocol.ts";
 import { DRUM_SURFACES, DrummerMotion, drumLeg } from "./drummer-motion.ts";
@@ -13,7 +14,11 @@ export class Drummer {
   private geometries: THREE.BufferGeometry[] = [];
   private blue = new THREE.LineBasicMaterial({ color: new THREE.Color(V.blue).convertLinearToSRGB().multiplyScalar(.55), transparent: true, opacity: .75 });
   private amber = new THREE.LineBasicMaterial({ color: new THREE.Color(V.amber).convertLinearToSRGB().multiplyScalar(.8) });
-  private arms: THREE.Line[] = [];
+  private arms: ArticulatedArm[] = [];
+  private armMaterial = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(V.blue).convertLinearToSRGB().multiplyScalar(.45),
+    wireframe: true, transparent: true, opacity: .7, depthWrite: false,
+  });
   private legs: THREE.Line[] = [];
   private hands: THREE.Group[] = [];
   private sticks: THREE.Line[] = [];
@@ -26,8 +31,8 @@ export class Drummer {
   }[] = [];
   private membranes: {geometry:THREE.BufferGeometry;rest:Float32Array;radius:number;y:number;id:number;material:THREE.LineBasicMaterial}[]=[];
   private wires: {geometry:THREE.BufferGeometry;rest:Float32Array}[]=[];
-  private head = new THREE.Group();
-  private nod=0;
+  readonly performerMount = new THREE.Group();
+  nod=0;
   private footboards: THREE.Group[] = [];
   private kickBeater = new THREE.Group();
   private kickLink!: THREE.Line;
@@ -139,14 +144,15 @@ export class Drummer {
     this.kickLink = line([[0, 0, 0], [0, 0, 0]], this.group, this.amber);
     this.hatLink = line([[0, 0, 0], [0, 0, 0]], this.group, this.amber);
     for(let i=0;i<2;i++)this.legs.push(line(Array.from({length:4},()=>[0,0,0])));
-    for(const [y,w,d] of [[.48,.12,.085],[.64,.14,.09],[.85,.19,.09]])line(Array.from({length:25},(_,i)=>[w*Math.cos(i*Math.PI/12),y,-.27+d*Math.sin(i*Math.PI/12)]));
-    for(const side of [-1,1])line([[side*.12,.48,-.27],[side*.14,.64,-.27],[side*.19,.85,-.27],[side*.055,.90,-.27]]);
-    this.head.position.set(0,.99,-.26);this.group.add(this.head);
-    for(let i=0;i<4;i++){const angle=i*Math.PI/4;line(Array.from({length:33},(_,j)=>{const a=j*Math.PI/16;return [.09*Math.cos(a)*Math.cos(angle),.105*Math.sin(a),.09*Math.cos(a)*Math.sin(angle)];}),this.head);}
-    for(const y of [-.06,0,.06]){const r=Math.sqrt(.09*.09-y*y);ring(r,y,this.head);}
-    for(const x of [-.035,.035])line([[x-.012,.015,.082],[x+.012,.015,.082]],this.head,this.amber);
+    // Place the shared torso at the seated rig's shoulder midpoint.
+    this.performerMount.rotation.z = Math.PI;
+    this.performerMount.position.set(.58, .495, -.09);
+    this.group.add(this.performerMount);
     for(let i=0;i<2;i++) {
-      this.arms.push(line([[0,0,0],[0,0,0],[0,0,0]]));this.sticks.push(line([[0,0,0],[0,0,0]],this.group,this.amber));
+      const arm = new ArticulatedArm(this.armMaterial);
+      this.arms.push(arm);
+      this.group.add(arm.group);
+      this.sticks.push(line([[0,0,0],[0,0,0]],this.group,this.amber));
       const palm=new THREE.Group();palm.scale.x=i===0?-1:1;this.hands.push(palm);this.group.add(palm);
       line([[-.025,0,-.025],[.025,0,-.025],[.025,0,.035],[-.025,0,.035],[-.025,0,-.025]],palm);
       // The shaft crosses the curled fingers diagonally, toward the thumb and index.
@@ -170,7 +176,8 @@ export class Drummer {
   update(tele:DrumTelemetry|null,clock:number,dt:number):void {
     const pose=this.motion.update(tele,clock,dt);
     pose.forEach((arm,i)=>{
-      this.points(this.arms[i],[arm.shoulder,arm.elbow,arm.wrist]);this.points(this.sticks[i],[arm.butt,arm.tip]);
+      this.arms[i].update(arm);
+      this.points(this.sticks[i],[arm.butt,arm.tip]);
       this.hands[i].position.copy(arm.wrist);
       const side = i === 0 ? 1 : -1;
       const thumbAxis = new THREE.Vector3(side, 0, 1).normalize();
@@ -180,7 +187,6 @@ export class Drummer {
     const smooth=1-Math.exp(-12*Math.min(.1,dt));
     const desiredNod=tele?.enabled&&tele.playing?.045*Math.sin(beat*Math.PI*2):0;
     this.nod+=(desiredNod-this.nod)*smooth;
-    this.head.rotation.x=this.nod;
     const nextKick = tele?.enabled && tele.next[0] >= 0 ? tele.next[0] - clock : Infinity;
     const kickAge = tele?.enabled && tele.last[0] >= 0 ? clock - tele.last[0] : Infinity;
     const approach = 1 - THREE.MathUtils.smoothstep(nextKick, 0, .075);
@@ -261,5 +267,5 @@ export class Drummer {
       pos.needsUpdate=true;
     });
   }
-  dispose():void {this.geometries.forEach(g=>g.dispose());this.membranes.forEach(m=>m.material.dispose());this.cymbals.forEach(c=>c.material.dispose());this.blue.dispose();this.amber.dispose();}
+  dispose():void {this.arms.forEach(arm => arm.dispose());this.armMaterial.dispose();this.geometries.forEach(g=>g.dispose());this.membranes.forEach(m=>m.material.dispose());this.cymbals.forEach(c=>c.material.dispose());this.blue.dispose();this.amber.dispose();}
 }

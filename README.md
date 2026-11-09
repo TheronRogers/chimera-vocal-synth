@@ -7,9 +7,10 @@ for tests and the `chimera` CLI.
 
 ## What it does
 
-- **Guitar**: a physical rock drum kit and animated drummer, six physical strings, an inspectable 3D acoustic guitar, articulated hands,
-  chord presets and accompaniment with an optional singer. Space strums; hold a string near
+- **Guitar** (startup view): six physical strings, an inspectable 3D acoustic guitar, articulated hands,
+  chord presets and accompaniment with optional vocals and drums. Space strums. Hold a string near
   the bridge or its Mute button to damp it. Coupled soundboard and cavity motion drives the audio.
+- **Drums**: a seated 3D drummer with eight playable rock-kit surfaces and a continuous hi-hat pedal.
 - **Play**: drag the tongue, lips and jaw in a live cutaway of the head; vowel pad, encoders,
   computer keyboard and Web MIDI.
 - **Speak**: English text (CMUdict with a letter-to-sound fallback) or IPA, turned into

@@ -4,7 +4,7 @@ import { initEngine } from "./harness.ts";
 import { call } from "../src/wasm/chimera.ts";
 import { CHORDS, fingerChord, type Frets } from "../src/guitar/model.ts";
 import type { HandPlan } from "../src/guitar/physical.ts";
-import { frettingArm, pickingArm, pickingPose, PERFORMER_GUITAR_DROP } from "../src/ui/render/guitar-hand.ts";
+import { frettingArm, pickingArm, pickingPose, strokeTip, PERFORMER_GUITAR_DROP } from "../src/ui/render/guitar-hand.ts";
 import { HAND_LIMITS, interpolateHand, palmBones, segmentDistance, METACARPAL_LENGTHS } from "../src/ui/render/hand-palm.ts";
 
 beforeAll(initEngine);
@@ -72,7 +72,7 @@ test("palm clearance detects crossed, parallel and degenerate bone segments",()=
 
 test("mirrored pick palms keep their bones separated throughout the wrist stroke",()=>{
   for(const hand of [-1,1] as const)for(let i=0;i<=64;i++) {
-    const phase=i/64,p=pickingPose(hand,.20*Math.sin(phase*Math.PI*2),.008*Math.sin(phase*Math.PI));
+    const phase=i/64,p=pickingPose(hand,.20*Math.sin(phase*Math.PI*2));
     palm(p.fingers,p.palmForward);
     const thumb=p.fingers.find(f=>f.finger===0)!.points.map(v);
     expect(thumb[1].clone().sub(thumb[0]).angleTo(thumb[2].clone().sub(thumb[1]))).toBeLessThanOrEqual(HAND_LIMITS.thumbMcp+1e-8);
@@ -81,7 +81,9 @@ test("mirrored pick palms keep their bones separated throughout the wrist stroke
 });
 
 test("the full thickness of the strumming arm clears the extruded guitar throughout both strokes",()=>{
-  const g=call<{outline:number[][];depth:number}>("guitarGeometry");
+  const g=call<{outline:number[][];depth:number;scale:number;nutSpacing:number;bridgeSpacing:number}>("guitarGeometry");
+  const idle=pickingPose().pick[2];
+  const point=(index:number)=>new Vector3(g.scale*.8,(index-2.5)*(g.nutSpacing*.2+g.bridgeSpacing*.8)/5,.004);
   function distance(p: Vector3) {
     let inside=false,edge=Infinity;
     for(let i=0,j=g.outline.length-1;i<g.outline.length;j=i++) {
@@ -92,17 +94,27 @@ test("the full thickness of the strumming arm clears the extruded guitar through
     }
     return Math.hypot(inside?0:Math.sqrt(edge),Math.max(-g.depth-.003-p.z,p.z-.001,0));
   }
-  for(const shoulder of [undefined,new Vector3(.74,-.035-PERFORMER_GUITAR_DROP,-.18)])
-    for(const direction of [-1,1])for(let i=0;i<=64;i++) {
-      const phase=i/64,p=pickingPose(1,direction*.20*Math.sin(phase*Math.PI*2),direction*.008*Math.sin(phase*Math.PI));
-      const a=pickingArm(p,shoulder);
-      expect(a.reachable).toBe(true);
-      expect(a.shoulder.distanceTo(a.elbow)).toBeCloseTo(.29,9);
-      expect(a.elbow.distanceTo(a.wrist)).toBeCloseTo(.24,9);
-      for(const [from,to,r0,r1] of [[a.shoulder,a.elbow,.034,.028],[a.elbow,a.wrist,.028,.014]] as const)
-        for(let k=0;k<=64;k++) {
-          const t=k/64;
-          expect(distance(from.clone().lerp(to,t))-(r0+(r1-r0)*t)).toBeGreaterThan(.004);
-        }
+  for(const shoulder of [undefined,new Vector3(.74,-.035-PERFORMER_GUITAR_DROP,-.08)])
+    for(const releases of [[1,-1,1.008,1.016,1.024,1.032],[1.032,1.024,1.016,1.008,-1,1]]) {
+      releases.forEach((time,index)=>{
+        if(time<0) return;
+        const pose=pickingPose(1,-.20,strokeTip(time,releases,point,idle));
+        expect(pose.pick[2].distanceTo(point(index))).toBeCloseTo(0,9);
+      });
+      const gap=strokeTip(1.004,releases,point,idle);
+      expect(gap.z).toBeGreaterThan(.020);
+      for(let i=0;i<=64;i++) {
+        const clock=.975 + .132*i/64;
+        const p=pickingPose(1,-.20,strokeTip(clock,releases,point,idle));
+        const a=pickingArm(p,shoulder);
+        expect(a.reachable).toBe(true);
+        expect(a.shoulder.distanceTo(a.elbow)).toBeCloseTo(.29,9);
+        expect(a.elbow.distanceTo(a.wrist)).toBeCloseTo(.24,9);
+        for(const [from,to,r0,r1] of [[a.shoulder,a.elbow,.034,.028],[a.elbow,a.wrist,.028,.014]] as const)
+          for(let k=0;k<=64;k++) {
+            const t=k/64;
+            expect(distance(from.clone().lerp(to,t))-(r0+(r1-r0)*t)).toBeGreaterThan(.004);
+          }
+      }
     }
 });

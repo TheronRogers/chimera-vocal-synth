@@ -14,6 +14,7 @@ type Listener = (t: TelemetryMessage) => void;
 export class AudioEngine {
   latestDrums: import("../worklet/protocol.ts").DrumTelemetry | null = null;
   latestDrumsAt = 0;
+  latestGuitarAt = 0;
   latestGuitar: import("../worklet/protocol.ts").GuitarTelemetry | null = null;
   guitar(op: import("../worklet/protocol.ts").GuitarOp, a = 0, b = 0, c = 0): void { this.send({ type: "guitar", op, a, b, c }); }
   ctx: AudioContext | null = null;
@@ -113,6 +114,7 @@ export class AudioEngine {
       if (m.type === "dtelemetry") {
         this.latestDrums=m.t; this.latestDrumsAt=performance.now();
       } else if (m.type === "gtelemetry") {
+        this.latestGuitarAt = performance.now();
         this.latestGuitar = m.t; this.load = m.load;
       } else if (m.type === "telemetry") {
         this.latest = m;

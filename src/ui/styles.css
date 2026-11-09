@@ -2940,3 +2940,5 @@ input[type="range"]::-moz-range-thumb {
 
 .guitar-view-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .guitar-view-controls label { display: flex; align-items: center; gap: 8px; }
+
+.drums-canvas { height: clamp(340px, 52vw, 570px); }
