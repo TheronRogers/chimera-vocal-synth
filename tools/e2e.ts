@@ -228,6 +228,35 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
   await page.getByRole('button',{name:'Stop all',exact:true}).click();
   await page.waitForTimeout(120);
   if((await state())?.rms!==0)errors.push(`[${tag}-guitar] Stop all left guitar sounding`);
+  await page.getByRole("combobox", {name:"Guitar sound",exact:true}).selectOption("electric");
+  const electricBody = page.getByRole("combobox", {name:"Electric body"});
+  for (const [body, winding, position] of [
+    ["Slab single cut", "1", "94"],
+    ["Carved single cut", "2", "86"],
+    ["Semi-hollow double cut", "2", "75"],
+    ["Contoured double cut", "1", "80"],
+  ]) {
+    await electricBody.selectOption({label:body});
+    if (await page.getByLabel("Pickup winding").inputValue() !== winding ||
+        await page.getByRole("slider", {name:"Pickup position"}).inputValue() !== position)
+      errors.push(`[${tag}-guitar] wrong tone defaults for ${body}`);
+  }
+  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth))
+    errors.push(`[${tag}-guitar] electric controls overflow the viewport`);
+  await page.getByLabel("Pickup winding").selectOption("2");
+  await page.getByRole("slider", {name:"Pickup position"}).fill("91");
+  await page.getByRole("slider", {name:"Strum position"}).fill("94");
+  await page.waitForFunction(()=>document.querySelector<HTMLCanvasElement>(".guitar-canvas canvas")?.dataset.strumPosition==="0.94");
+  await page.getByRole("button", {name:/Strum down/}).click();
+  await page.waitForFunction(() => {
+    // @ts-expect-error debug handle
+    const t = window.__chimeraEngine?.latestGuitar;
+    return t?.rms > .001 && Math.abs(t.strings[0].position - .94) < .005;
+  }, undefined, { timeout: 4000 }).catch(() => errors.push(`[${tag}-guitar] electric strum did not sound at the selected position`));
+  await page.getByRole("button", {name:"Stop all", exact:true}).click();
+  await page.getByRole("slider", {name:"Strum position"}).fill("80");
+  await page.getByRole("combobox", {name:"Guitar sound",exact:true}).selectOption("acoustic");
+
   const canvas=page.locator('.guitar-canvas canvas');
   await canvas.scrollIntoViewIfNeeded();
   const b=(await canvas.boundingBox())!;
@@ -280,6 +309,24 @@ async function guitar(viewport: { width: number; height: number }, tag: string) 
   if(!(await state())?.playing)errors.push(`[${tag}-guitar] progression did not start`);
   await page.getByRole('spinbutton',{name:'Guitar tempo',exact:true}).fill('120');
   await page.getByRole('button',{name:'Stop accompaniment',exact:true}).click();
+  await page.getByLabel("Tab (high e first)").fill("e | 3 -\nB | - -\nG | - -\nD | - -\nA | - -\nE | - -");
+  await page.getByRole("button",{name:"Play tab",exact:true}).click();
+  await page.waitForFunction(()=>{
+    // @ts-expect-error debug handle
+    const t=window.__chimeraEngine?.latestGuitar;
+    return t?.playing&&t.rms>.00001&&t.strings[5].fret===3&&t.strokeReleases.filter((x:number)=>x>=0).length===1&&t.strokeReleases[5]>=0;
+  },undefined,{timeout:4000}).catch(()=>errors.push(`[${tag}-guitar] tab did not play the high E note alone`));
+  await page.getByRole("button",{name:"Play tab",exact:true}).waitFor();
+  await page.getByLabel("Playing style").selectOption("fingerstyle");
+  await page.waitForFunction(()=>document.querySelector<HTMLCanvasElement>(".guitar-canvas canvas")?.dataset.picking==="fingers");
+  await page.getByRole("button",{name:"Play accompaniment",exact:true}).click();
+  await page.waitForFunction(()=>{
+    // @ts-expect-error debug handle
+    const t=window.__chimeraEngine?.latestGuitar;
+    return t?.playing&&t.rms>.00001&&t.direction===0&&t.strokeReleases.filter((x:number)=>x>=0).length===1;
+  },undefined,{timeout:4000}).catch(()=>errors.push(`[${tag}-guitar] fingerstyle did not pick single strings`));
+  await page.getByRole("button",{name:"Stop accompaniment",exact:true}).click();
+  await page.getByLabel("Playing style").selectOption("strum");
   await page.getByRole('checkbox',{name:'With singer',exact:true}).check();
   await page.waitForFunction(()=>document.querySelector<HTMLCanvasElement>('.guitar-canvas canvas')?.dataset.singer==='true');
   const framing=await canvas.evaluate(c=>({tip:JSON.parse((c as HTMLCanvasElement).dataset.headstock!),w:c.clientWidth,h:c.clientHeight}));

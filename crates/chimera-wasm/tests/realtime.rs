@@ -116,6 +116,8 @@ fn guitar_commands_render_and_telemetry_do_not_allocate() {
         let before = allocs();
         engine_guitar(h, 0, 1.0, 0.0, 0.0);
         engine_guitar(h, 11, 5.0, 4.0, 0.0);
+        engine_guitar(h, 14, 1.0, 0.0, 0.0);
+        engine_guitar(h, 14, 0.0, 0.0, 0.0);
         assert_eq!(allocs() - before, 0, "activation or instrument selection allocated");
         engine_set_gate(h, 0.7);
         engine_guitar(h,7,1.0,1.0,0.0);

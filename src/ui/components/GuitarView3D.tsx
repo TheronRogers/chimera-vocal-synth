@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { V } from "../colors.ts";
-import { frettingArm, pickingArm, pickingPose, strokeTip, performerShoulder, PERFORMER_GUITAR_TILT } from "../render/guitar-hand.ts";
+import { fingerstylePose, frettingArm, pickingArm, pickingPose, strokeTip, performerShoulder, PERFORMER_GUITAR_TILT } from "../render/guitar-hand.ts";
 import { interpolateHand } from "../render/hand-palm.ts";
 import { ArticulatedHand } from "../render/articulated-hand.ts";
 import { Drummer } from "../render/drummer.ts";
@@ -15,7 +15,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { call } from "../../wasm/chimera.ts";
 import { type Chord, fingerChord, type Frets } from "../../guitar/model.ts";
 import { engine } from "../../audio/AudioEngine.ts";
-import type { GuitarBodyProfile } from "../../guitar/instruments.ts";
+import type { ElectricBodyProfile, GuitarBodyProfile } from "../../guitar/instruments.ts";
 import { archtopPlate, fHole, type PlateMesh } from "../render/guitar-body.ts";
 import { type HandPlan, handPlan } from "../../guitar/physical.ts";
 interface Geometry {
@@ -29,18 +29,25 @@ interface Geometry {
 }
 /** Actual scene projection owns hit tests. A mute never transfers to another string. */
 export function GuitarView3D(
-  { profile, chord, singer = false, drummer = false, onEngage, onRelease }: {
+  { profile, electricBody, bass = false, leftHanded = false, chord, singer = false, drummer = false, pickup = 0, pickupPosition = .86, strumPosition = .8, fingerstyle = false, onEngage, onRelease }: {
     profile: GuitarBodyProfile;
+    electricBody?: ElectricBodyProfile;
+    bass?: boolean;
+    leftHanded?: boolean;
     chord: Chord;
     singer?: boolean;
     drummer?: boolean;
+    pickup?: number;
+    pickupPosition?: number;
+    strumPosition?: number;
+    fingerstyle?: boolean;
     onEngage: (id: string, i: number) => void;
     onRelease: (id: string) => void;
   },
 ) {
   const ref = useRef<HTMLCanvasElement>(null),
-    live = useRef({ chord, singer, drummer, onEngage, onRelease });
-  live.current = { chord, singer, drummer, onEngage, onRelease };
+    live = useRef({ chord, singer, drummer, pickup, pickupPosition, strumPosition, fingerstyle, onEngage, onRelease });
+  live.current = { chord, singer, drummer, pickup, pickupPosition, strumPosition, fingerstyle, onEngage, onRelease };
   const model = useModel();
   const action = useRef<(back: boolean) => void>(() => {});
   const [failed, setFailed] = useState(false);
@@ -61,8 +68,14 @@ export function GuitarView3D(
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     const scene = new THREE.Scene(), root = new THREE.Group(), bodyRoot = new THREE.Group();
     bodyRoot.rotation.z = Math.PI;
-    scene.add(root, bodyRoot);
+    const handedRig = new THREE.Group();
+    handedRig.scale.x = leftHanded ? -1 : 1;
+    handedRig.add(root, bodyRoot);
+    scene.add(handedRig);
+    const stringCount = bass ? 4 : 6;
     const performer = new Performer();
+    // Move the head with the mirrored torso while preserving its camera-facing geometry.
+    performer.headMount.scale.x = handedRig.scale.x;
     bodyRoot.add(performer.group);
     let bandDrummer: { kit: Drummer; performer: Performer } | null = null;
     const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 10),
@@ -201,15 +214,26 @@ export function GuitarView3D(
     const plateColor = new THREE.Color();
     const modalAmplitudes = new Float64Array(modes.modes.length);
     const exaggerate = (metres: number, gain: number) => THREE.MathUtils.clamp(metres * gain, -.018, .018);
+    let bodyShape = shape;
+    if (electricBody) {
+      const outline = new THREE.CatmullRomCurve3(
+        // The guitar root turns the neck toward the player’s left, reversing local Y.
+        electricBody.outline.map(([x, y]) => new THREE.Vector3(x, -y, 0)),
+        true,
+      );
+      bodyShape = new THREE.Shape(outline.getPoints(96).slice(0, -1).map(p => new THREE.Vector2(p.x, p.y)));
+      if (electricBody.fHoles) bodyShape.holes.push(fHole(-1), fHole(1));
+    }
+    const bodyDepth = electricBody?.depth ?? g.depth;
     const body = mesh(
-      new THREE.ExtrudeGeometry(shape, {
-        depth: g.depth - profile.arch,
+      new THREE.ExtrudeGeometry(bodyShape, {
+        depth: electricBody ? bodyDepth : bodyDepth - profile.arch,
         bevelEnabled: false,
         steps: 1,
       }),
       blue,
     );
-    body.position.z = -g.depth - .003;
+    body.position.z = -bodyDepth - .003;
     // Pin the back's rim and show its single bending coordinate at the center.
     const backGeometry = new THREE.BufferGeometry();
     const backRim = g.outline.filter((_, i) => i % 8 === 0);
@@ -237,6 +261,7 @@ export function GuitarView3D(
       air.add(new THREE.LineLoop(airGeometry, airMaterial));
     }
     root.add(air);
+    rim.visible = board.visible = back.visible = air.visible = !electricBody;
     const portArea = paths.reduce((area, path) => area + Math.abs(THREE.ShapeUtils.area(path.getPoints(24))), 0);
     let airActivity = 0;
     let backActivity = 0;
@@ -257,6 +282,7 @@ export function GuitarView3D(
     segment([0, 0, -.021], [.359, 0, -.021], .019, neckMat);
     box(.359, 0, -.043, .045, .045, .07);
     box(-.075, 0, -.018, .15, .065, .018);
+    const pickupCoils = [box(0, 0, -.002, .013, .074, .009), box(0, 0, -.002, .013, .074, .009)];
     const bridge = box(g.scale, 0, .008, .028, .080, .016),
       saddle = box(g.scale, 0, .019, .004, .058, .007);
     const metal = wire(V.blue, .8);
@@ -267,10 +293,10 @@ export function GuitarView3D(
     });
     materials.push(amber);
     const strings: THREE.Line[] = [];
-    const idlePickTip = pickingPose().pick[2];
     const sy = (i: number, x: number) =>
       (i - 2.5) *
       (g.nutSpacing + (g.bridgeSpacing - g.nutSpacing) * x / g.scale) / 5;
+    const strumGuide = segment([0, -.5, 0], [0, .5, 0], .0011, amber);
     for (let f = 0; f <= 20; f++) {
       const x = g.scale * (1 - 2 ** (-f / 12)),
         width = g.nutWidth + .022 * x / g.scale;
@@ -281,7 +307,7 @@ export function GuitarView3D(
         metal,
       );
     }
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < stringCount; i++) {
       const points = Array.from(
         { length: 257 },
         (_, n) =>
@@ -292,7 +318,7 @@ export function GuitarView3D(
       const line = new THREE.Line(geo, amber);
       root.add(line);
       strings.push(line);
-      const px = -.022 - (i < 3 ? i : 5 - i) * .044, py = i < 3 ? -.024 : .024;
+      const px = -.022 - (i < stringCount / 2 ? i : stringCount - 1 - i) * .044, py = i < stringCount / 2 ? -.024 : .024;
       segment([0, sy(i, 0), .004], [px, py, .002], .0006, neckMat);
       segment([px, py, -.015], [px, py * 1.8, -.015], .002, neckMat);
       box(px, py * 1.8, -.015, .018, .009, .007);
@@ -308,15 +334,14 @@ export function GuitarView3D(
     pickGeometry.setAttribute("position",new THREE.Float32BufferAttribute(new Float32Array(9),3));
     const pickMaterial = new THREE.MeshBasicMaterial({color:amber.color.clone(),side:THREE.DoubleSide,transparent:true,opacity:.85,toneMapped:false});
     materials.push(pickMaterial);
-    mesh(pickGeometry,pickMaterial,root,false);
+    const pickMesh = mesh(pickGeometry,pickMaterial,root,false);
     root.rotation.z = Math.PI;
     const target = new THREE.Vector3(-.34, 0, -.02);
     function home(back: boolean) {
       // Rotate the instrument about the soundboard, leaving the person's torso upright.
       root.rotation.z = Math.PI + PERFORMER_GUITAR_TILT;
       root.position.set(-.58, 0, 0).sub(new THREE.Vector3(.58, 0, 0).applyQuaternion(root.quaternion));
-      root.updateMatrixWorld(true);
-      bodyRoot.updateMatrixWorld(true);
+      handedRig.updateMatrixWorld(true);
       controls.maxDistance = 8;
       if (live.current.drummer) {
         camera.up.set(0,1,0);
@@ -328,8 +353,8 @@ export function GuitarView3D(
       camera.up.set(0, 1, 0);
       const aspect = Math.max(.3, canvas.clientWidth / Math.max(1, canvas.clientHeight));
       const distance = Math.max(1.70, .66 / (Math.tan(camera.fov * Math.PI / 360) * aspect));
-      camera.position.set(-.38, .35, back ? -distance : distance);
-      controls.target.set(-.36, .18, -.07);
+      camera.position.set(handedRig.scale.x * -.38, .35, back ? -distance : distance);
+      controls.target.set(handedRig.scale.x * -.36, .18, -.07);
       controls.update();
     }
     action.current = home;
@@ -444,7 +469,7 @@ export function GuitarView3D(
             previousPlan = targetPlan;
           }
         }
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < stringCount; i++) {
           const pos = strings[i].geometry.getAttribute(
             "position",
           ) as THREE.BufferAttribute;
@@ -453,51 +478,84 @@ export function GuitarView3D(
           }
           pos.needsUpdate = true;
         }
-        const acoustics = vib.current ? t : null;
-        const position = board.geometry.getAttribute("position") as THREE.BufferAttribute;
-        for (let j = 0; j < modes.modes.length; j++) {
-          const state = acoustics?.modes[j];
-          modalAmplitudes[j] = state ? Math.hypot(state.q, state.velocity / (2 * Math.PI * modes.modes[j].hz * profile.frequencyScale)) : 0;
-        }
-        for (let i = 0; i < position.count; i++) {
-          let displacement = 0;
-          let activity = 0;
+        if (!electricBody) {
+          const acoustics = vib.current ? t : null;
+          const position = board.geometry.getAttribute("position") as THREE.BufferAttribute;
           for (let j = 0; j < modes.modes.length; j++) {
-            const shape = modes.modes[j].shape[i];
-            displacement += (acoustics?.modes[j].q ?? 0) * shape;
-            activity += Math.abs(shape) * modalAmplitudes[j];
+            const state = acoustics?.modes[j];
+            modalAmplitudes[j] = state ? Math.hypot(state.q, state.velocity / (2 * Math.PI * modes.modes[j].hz * profile.frequencyScale)) : 0;
           }
-          position.setZ(i, restDepth[i] + exaggerate(displacement, 640));
-          plateColor.copy(plateIdle).lerp(plateActive, Math.min(1, activity * 40000));
-          plateColors.setXYZ(i, plateColor.r, plateColor.g, plateColor.b);
+          for (let i = 0; i < position.count; i++) {
+            let displacement = 0;
+            let activity = 0;
+            for (let j = 0; j < modes.modes.length; j++) {
+              const shape = modes.modes[j].shape[i];
+              displacement += (acoustics?.modes[j].q ?? 0) * shape;
+              activity += Math.abs(shape) * modalAmplitudes[j];
+            }
+            position.setZ(i, restDepth[i] + exaggerate(displacement, 640));
+            plateColor.copy(plateIdle).lerp(plateActive, Math.min(1, activity * 40000));
+            plateColors.setXYZ(i, plateColor.r, plateColor.g, plateColor.b);
+          }
+          position.needsUpdate = true;
+          plateColors.needsUpdate = true;
+          const backTravel = acoustics?.back ?? 0;
+          backPosition.setZ(0, exaggerate(backTravel, 3200));
+          backPosition.needsUpdate = true;
+          const decay = Math.exp(-frameDt * 20);
+          backActivity = acoustics ? Math.max(Math.abs(backTravel), backActivity * decay) : 0;
+          backMaterial.color.copy(plateIdle).lerp(plateActive, Math.min(.8, backActivity * 300000));
+          const airTravel = (acoustics?.cavity ?? 0) / portArea;
+          air.position.z = -.018 - profile.arch - exaggerate(airTravel, 140);
+          airActivity = acoustics ? Math.max(Math.abs(airTravel), airActivity * decay) : 0;
+          airMaterial.opacity = Math.min(.85, airActivity * 12000);
         }
-        position.needsUpdate = true;
-        plateColors.needsUpdate = true;
-        const backTravel = acoustics?.back ?? 0;
-        backPosition.setZ(0, exaggerate(backTravel, 3200));
-        backPosition.needsUpdate = true;
-        const decay = Math.exp(-frameDt * 20);
-        backActivity = acoustics ? Math.max(Math.abs(backTravel), backActivity * decay) : 0;
-        backMaterial.color.copy(plateIdle).lerp(plateActive, Math.min(.8, backActivity * 300000));
-        const airTravel = (acoustics?.cavity ?? 0) / portArea;
-        air.position.z = -.018 - profile.arch - exaggerate(airTravel, 140);
-        airActivity = acoustics ? Math.max(Math.abs(airTravel), airActivity * decay) : 0;
-        airMaterial.opacity = Math.min(.85, airActivity * 12000);
+        const { pickup, pickupPosition } = live.current;
+        pickupCoils[0].visible = pickup !== 0;
+        pickupCoils[1].visible = pickup === 2;
+        pickupCoils[0].position.x = g.scale * pickupPosition - (pickup === 2 ? .009 : 0);
+        pickupCoils[1].position.x = g.scale * pickupPosition + .009;
         const bridgeMotion = (t?.bridge ?? 0) * 12;
         bridge.position.z = .008 + bridgeMotion;
         saddle.position.z = .019 + bridgeMotion;
         const guitarClock = (t?.clock ?? 0) + Math.min(.016, Math.max(0, (now - engine.latestGuitarAt) / 1000));
-        const tip = t ? strokeTip(guitarClock, t.strokeReleases, i => {
+        const guideX = g.scale * live.current.strumPosition;
+        strumGuide.position.set(guideX, 0, .008);
+        strumGuide.scale.y = sy(5, guideX) * 2 + .012;
+        const idleTip = new THREE.Vector3(guideX, sy(2, guideX) - .012, .055);
+        const contact = t?.strokeReleases.findIndex(time => time >= 0 && guitarClock >= time - .025 && guitarClock <= time + .075) ?? -1;
+        const bareHand = contact >= 0 ? t?.direction === 0 : live.current.fingerstyle;
+        const stringPoint = (i: number) => {
+          if (!t) return idleTip;
           const string = t.strings[i];
-          const x = g.scale * string.position;
-          const sample = string.position * 256;
+          const position = string.plucking || guitarClock >= t.strokeReleases[i]
+            ? string.position : live.current.strumPosition;
+          const x = g.scale * position;
+          const sample = position * 256;
           const lo = Math.floor(sample);
           const hi = Math.min(lo + 1, 256);
           const displacement = THREE.MathUtils.lerp(string.displacement[lo], string.displacement[hi], sample - lo);
           const z = .004 + displacement * 12;
           return new THREE.Vector3(x, sy(i, x), z);
-        }, idlePickTip) : idlePickTip;
-        const pickPose = pickingPose(1, -.20, tip);
+        };
+        const contacts = new Map<number, {digit: number; point: THREE.Vector3; amount: number}>();
+        if (bareHand && t) {
+          t.strokeReleases.forEach((release, string) => {
+            const elapsed = guitarClock - release;
+            if (release < 0 || elapsed < -.025 || elapsed > .075) return;
+            const digit = Math.max(0, string - 2);
+            const amount = elapsed < 0 ? 1 + elapsed / .025 : 1 - elapsed / .075;
+            if (amount > (contacts.get(digit)?.amount ?? 0)) {
+              contacts.set(digit, {digit, point: stringPoint(string), amount});
+            }
+          });
+        }
+        const pickPose = bareHand
+          ? fingerstylePose(new THREE.Vector3(guideX, sy(3, guideX), .012), [...contacts.values()], string => sy(string, guideX))
+          : pickingPose(1, -.20, t ? strokeTip(guitarClock, t.strokeReleases, stringPoint, idleTip) : idleTip);
+        pickMesh.visible = !bareHand;
+        canvas.dataset.picking = bareHand ? "fingers" : "pick";
+        canvas.dataset.strumPosition = String(live.current.strumPosition);
         const pickShoulder = performerShoulder(.74);
         const pickArm = pickingArm(pickPose,pickShoulder);
         pickingRig.update(pickPose.fingers,{...pickPose,...pickArm});
@@ -520,7 +578,7 @@ export function GuitarView3D(
         controls.update();
         root.updateMatrixWorld(true);
         canvas.dataset.mutePoints = JSON.stringify(
-          Array.from({ length: 6 }, (_, i) => {
+          Array.from({ length: stringCount }, (_, i) => {
             const p = new THREE.Vector3(.6, sy(i, .6), .004).applyMatrix4(
               root.matrixWorld,
             ).project(camera);
@@ -552,7 +610,7 @@ export function GuitarView3D(
       materials.forEach((m) => m.dispose());
       renderer.dispose();
     };
-  }, [model, profile]);
+  }, [model, profile, electricBody, bass, leftHanded]);
   return (
     <>
       <div className="guitar-view-controls">
@@ -562,20 +620,20 @@ export function GuitarView3D(
         <button className="chip" onClick={() => action.current(true)}>
           Neck back
         </button>
-        <label title="Amber on the soundboard shows vibration. The ring shows air moving through the soundhole. Orbit to see the back flex.">
+        {!electricBody && <label title="Amber on the soundboard shows vibration. The ring shows air moving through the soundhole. Orbit to see the back flex.">
           <input
             type="checkbox"
             checked={vibration}
             onChange={(e) => setVibration(e.target.checked)}
           />{" "}
           Show body vibration
-        </label>
+        </label>}
       </div>
       <div className="guitar-canvas">
         <canvas
           ref={ref}
           role="img"
-          aria-label={drummer ? (singer ? "3D singer and guitarist as one performer with a drummer and rock drum set. Drag to orbit; hold a string near the bridge to mute." : "3D guitarist with a drummer and rock drum set. Drag to orbit; hold a string near the bridge to mute.") : singer ? "3D singer and guitarist as one performer. Drag to orbit; hold a string near the bridge to mute." : "3D guitarist with an acoustic guitar. Drag to orbit; hold a string near the bridge to mute."}
+          aria-label={drummer ? (singer ? "3D singer and guitarist as one performer with a drummer and rock drum set. Drag to orbit; hold a string near the bridge to mute." : "3D guitarist with a drummer and rock drum set. Drag to orbit; hold a string near the bridge to mute.") : singer ? "3D singer and guitarist as one performer. Drag to orbit; hold a string near the bridge to mute." : `3D guitarist with ${bass ? "an electric bass" : electricBody ? electricBody.name + " electric guitar" : "an acoustic guitar"}. Drag to orbit; hold a string near the bridge to mute.`}
         />
       </div>
       {failed && (

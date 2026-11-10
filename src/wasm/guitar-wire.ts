@@ -1,14 +1,14 @@
 import type { GuitarEvent } from "../guitar/model.ts";
 import type { GuitarTelemetry } from "../worklet/protocol.ts";
 
-export const GUITAR_LAYOUT_VERSION = 5;
+export const GUITAR_LAYOUT_VERSION = 6;
 export const GUITAR_EVENT_BYTES = 80;
 export const GUITAR_MAX_EVENTS = 2048;
 export const GUITAR_TELE_HEADER = 70;
 export const GUITAR_STRING_STRIDE = 264;
 export const GUITAR_TELE_LEN = GUITAR_TELE_HEADER + 6*GUITAR_STRING_STRIDE;
 
-/** Ten little-endian f64s: time, six frets, direction, strength, progression step. */
+/** Ten little-endian f64s: time, six frets, action, strength, progression step. */
 export function writeGuitarEvents(buffer: ArrayBuffer, at: number, events: readonly GuitarEvent[]): number {
   if (events.length > GUITAR_MAX_EVENTS) throw new Error("Guitar score exceeds capacity");
   const view = new DataView(buffer,at,events.length*GUITAR_EVENT_BYTES);

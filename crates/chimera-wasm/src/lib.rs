@@ -606,6 +606,18 @@ pub unsafe extern "C" fn engine_guitar(h: *mut Handle, op: u32, a: f64, b: f64, 
         11 if a >= 0.0 && b >= 0.0 && a.fract() == 0.0 && b.fract() == 0.0 => {
             h.engine.guitar.set_instrument(a as usize, b as usize);
         },
+        12 => {
+            use chimera::guitar::Pickup;
+            let pickup = match a {
+                0.0 => Pickup::Acoustic,
+                1.0 => Pickup::SingleCoil,
+                2.0 => Pickup::Humbucker,
+                _ => return,
+            };
+            h.engine.guitar.set_pickup(pickup, b);
+        },
+        13 => h.engine.guitar.set_strum_position(a),
+        14 => h.engine.guitar.set_bass(a == 1.0),
         6 => h.engine.set_guitar_levels(a,b),
         7 => {if a.is_finite() && a>=0.0 && a<14.0f64.powi(6) && a.fract()==0.0 {let mut code=a as u32;let mut frets=[0i8;6];for f in &mut frets {*f=(code%14) as i8-1;code/=14;}h.engine.guitar.set_shape(frets,b);}},
         _ => {}
@@ -627,7 +639,7 @@ pub extern "C" fn engine_guitar_telemetry_len() -> usize { chimera::guitar::TELE
 
 /// # Safety
 /// h must be live. Writable fixed buffer of GUITAR_MAX_EVENTS × 80 bytes.
-/// Each record is ten LE f64s: time, six frets, direction, strength, progression step.
+/// Each record is ten LE f64s: time, six frets, action (-1/1 strum, 0 grip, 2–7 pluck), strength, progression step.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn engine_guitar_records(h: *mut Handle) -> *mut u8 {
     handle!(h).guitar_records.as_mut_ptr()
@@ -646,7 +658,7 @@ pub unsafe extern "C" fn engine_guitar_schedule(h: *mut Handle, n: usize, lead: 
         if !time.is_finite() || time < 0.0 { continue; }
         let frets = core::array::from_fn(|i| if f(i+1).is_finite() { f(i+1).round().clamp(-1.0,12.0) as i8 } else { -1 });
         h.guitar_events.push(chimera::guitar::GuitarEvent {
-            time, frets, direction: if f(7) < 0.0 { -1 } else if f(7) > 0.0 { 1 } else { 0 },
+            time, frets, direction: if (-1.0..=7.0).contains(&f(7)) { f(7) as i8 } else { 0 },
             strength: f(8), step: f(9).clamp(0.0,31.0) as u16,
         });
     }

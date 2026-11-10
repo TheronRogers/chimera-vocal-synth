@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
+import { EXAMPLE_BASS_TAB, EXAMPLE_TAB, planTab } from "../src/guitar/tab.ts";
 import { wasmModule } from "./harness.ts";
-import { CHORDS, DEFAULT_PATTERN, DEFAULT_PROGRESSION, fingerChord, planGuitar, type GuitarEvent } from "../src/guitar/model.ts";
+import { CHORDS, DEFAULT_PATTERN, DEFAULT_PROGRESSION, fingerChord, planBass, planGuitar, type GuitarEvent } from "../src/guitar/model.ts";
 import { GUITAR_LAYOUT_VERSION, GUITAR_TELE_LEN, readGuitarTelemetry, writeGuitarEvents } from "../src/wasm/guitar-wire.ts";
 import { guitarCamera, guitarScreenPoint, muteStringAt, TUNERS, NUT, BRIDGE, STRING_TOP, STRING_GAP, frettingHandPose, handFingers } from "../src/ui/render/guitar.ts";
 
@@ -126,4 +127,56 @@ test("long fretting reaches paint on top while every preset fingertip reaches it
       }
     }
   }
+});
+
+test("tab releases only the selected strings, including simultaneous notes", () => {
+  const score = planTab(EXAMPLE_TAB, 120);
+  expect(score.duration).toBe(2);
+  expect(score.events.filter(e=>e.time===1).map(e=>[e.direction,e.frets[0],e.frets[5]])).toEqual([[2,3,3],[7,3,3]]);
+  expect(()=>planTab(EXAMPLE_TAB.replace("0 3 0","0 13 0"),120)).toThrow("Column 5");
+
+  type X={memory:WebAssembly.Memory}&Record<string,(...a:number[])=>number>;
+  const x=new WebAssembly.Instance(wasmModule,{}).exports as X;
+  const h=x.engine_new(48000);
+  try {
+    x.engine_guitar(h,0,1,0,0);
+    const count=writeGuitarEvents(x.memory.buffer,x.engine_guitar_records(h),score.events);
+    x.engine_guitar_schedule(h,count,.35,score.duration,0,120);
+    for(let i=0;i<140;i++) x.engine_render(h,128);
+    let t=readGuitarTelemetry(x.memory.buffer,x.engine_guitar_telemetry(h));
+    expect(t.strokeReleases.filter(n=>n>=0)).toEqual([.35]);
+    expect(t.strings[1].fret).toBe(3);
+    expect(t.strings[1].rms).toBeGreaterThan(0);
+    for(let i=140;i<515;i++) x.engine_render(h,128);
+    t=readGuitarTelemetry(x.memory.buffer,x.engine_guitar_telemetry(h));
+    expect(t.strokeReleases[0]).toBe(1.35);
+    expect(t.strokeReleases[5]).toBe(1.35);
+  } finally {
+    x.engine_free(h);
+  }
+});
+
+test("fingerstyle follows each chord's bass and picks the treble strings separately", () => {
+  const score=planGuitar(DEFAULT_PROGRESSION,DEFAULT_PATTERN,120,undefined,true);
+  const notes=score.events.filter(e=>e.direction!==0);
+  expect(notes.slice(0,4).map(e=>[e.time,e.direction])).toEqual([[0,3],[.25,5],[.5,6],[.75,7]]);
+  expect(notes.filter(e=>e.step===0 && e.time % 1 === 0).map(e=>e.direction)).toEqual([3,4]);
+  expect(notes.find(e=>e.step===1)?.direction).toBe(2);
+  const extended=planGuitar([{chord:CHORDS[2],beats:8}],DEFAULT_PATTERN,120,undefined,true);
+  expect(extended.events.filter(e=>e.direction!==0 && e.time % 1 === 0).map(e=>e.direction)).toEqual([2,3,4,2]);
+  const trebleOnly=planGuitar([{chord:fingerChord([-1,-1,-1,0,0,0]),beats:2}],DEFAULT_PATTERN,120,undefined,true);
+  expect(trebleOnly.events.filter(e=>e.direction!==0).map(e=>e.direction)).toEqual([5,6,7]);
+});
+
+test("bass tab and accompaniment only address the four bass strings", () => {
+  const tab = planTab(EXAMPLE_BASS_TAB, 120, true);
+  expect(tab.events.map(event => event.direction)).toEqual([2, 3, 4, 3]);
+  expect(tab.events.every(event => event.frets.slice(4).every(fret => fret === -1))).toBe(true);
+  expect(() => planTab(EXAMPLE_TAB, 120, true)).toThrow("four tab rows");
+
+  const score = planBass([{ chord: CHORDS[3], beats: 4 }, { chord: CHORDS[0], beats: 4 }], 120, 8);
+  expect(score.duration).toBe(4);
+  expect(score.looping).toBe(false);
+  expect(score.events.map(event => event.direction)).toEqual([2, 2, 3, 2, 3, 3, 4, 3]);
+  expect(score.events[2].frets).toEqual([-1, 5, -1, -1, -1, -1]);
 });

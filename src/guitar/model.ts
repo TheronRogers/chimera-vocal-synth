@@ -5,9 +5,12 @@ export interface Barre { fret: number; from: number; to: number; finger: number 
 export interface Chord { name: string; frets: Frets; fingers?: Frets; barre?: Barre }
 export interface ProgressionStep { chord: Chord; beats: number }
 export type StrumPattern = StrumDirection[];
-export interface GuitarEvent { time: number; frets: Frets; direction: StrumDirection; strength: number; step: number }
+export type GuitarAction = StrumDirection | 2 | 3 | 4 | 5 | 6 | 7;
+export const pickString = (index: number) => (index + 2) as GuitarAction;
+export interface GuitarEvent { time: number; frets: Frets; direction: GuitarAction; strength: number; step: number }
 export interface GuitarScore { events: GuitarEvent[]; duration: number; looping: boolean; bpm: number; leadIn: number }
 
+export const BASS_STRING_NAMES = ["E1", "A1", "D2", "G2"];
 export const STRING_NAMES = ["E2", "A2", "D3", "G3", "B3", "E4"];
 export const CHORDS: readonly Chord[] = [
   { name: "C", frets: [-1,3,2,0,1,0], fingers: [0,3,2,0,1,0] },
@@ -56,7 +59,7 @@ export function fingerChord(frets: Frets): Chord {
 }
 
 /** A half-beat grid repeats across chord boundaries; rests still change the fretting hand. */
-export function planGuitar(progression: readonly ProgressionStep[], pattern: readonly StrumDirection[], bpm: number, totalBeats?: number): GuitarScore {
+export function planGuitar(progression: readonly ProgressionStep[], pattern: readonly StrumDirection[], bpm: number, totalBeats?: number, fingerstyle = false): GuitarScore {
   const steps = progression.slice(0,32).map(s => ({ chord: s.chord, beats: Math.max(1,Math.min(16,Math.round(s.beats))) }));
   if (!steps.length || !Number.isFinite(bpm) || bpm < 40 || bpm > 200) throw new Error("Choose a progression and a tempo from 40 to 200 BPM.");
   const cycle = steps.reduce((sum,s) => sum+s.beats,0);
@@ -70,12 +73,50 @@ export function planGuitar(progression: readonly ProgressionStep[], pattern: rea
     const end = Math.min(beats,beat+s.beats);
     const frets = s.chord.frets.map(f => Number.isFinite(f) ? Math.max(-1,Math.min(12,Math.round(f))) : -1) as Frets;
     events.push({ time: beat*seconds, frets, direction: 0, strength: 0, step });
+    const bassStrings = [0, 1, 2].filter(string => frets[string] >= 0);
+    let nextBass = 0;
     for (let tick = Math.ceil(beat*2); tick/2 < end; tick++) {
-      const direction = pattern[tick%8] ?? 0;
+      const slot = tick % 4;
+      let index = slot + 2;
+      if (slot === 0) {
+        index = bassStrings[nextBass] ?? -1;
+        if (++nextBass >= bassStrings.length) nextBass = 0;
+      }
+      const direction = fingerstyle
+        ? (index >= 0 && frets[index] >= 0 ? pickString(index) : 0)
+        : (pattern[tick%8] ?? 0);
       if (direction) events.push({ time: tick/2*seconds, frets, direction, strength: tick%2 ? 0.64 : 0.8, step });
     }
     beat = end; step = (step+1)%steps.length;
   }
   if (events.length > 2048) throw new Error("The guitar score is too long.");
   return { events, duration: beats*seconds, looping: totalBeats === undefined, bpm, leadIn: 0.35 };
+}
+
+const BASS_ROOTS: Record<string, readonly [number, number]> = {
+  E: [0, 0], Em: [0, 0], F: [0, 1], G: [0, 3],
+  A: [1, 0], Am: [1, 0], Bm: [1, 2], C: [1, 3], D: [2, 0], Dm: [2, 0],
+};
+
+/** Quarter-note bass line with a fifth on beat three. Custom shapes use the lowest sounding string. */
+export function planBass(progression: readonly ProgressionStep[], bpm: number, totalBeats?: number): GuitarScore {
+  const score = planGuitar(progression, [], bpm, totalBeats);
+  const beatSeconds = 60 / bpm;
+  const events: GuitarEvent[] = [];
+  const changes = score.events;
+  let change = 0;
+  for (let beat = 0; beat * beatSeconds < score.duration - 1e-8; beat++) {
+    while (change + 1 < changes.length && changes[change + 1].time <= beat * beatSeconds) change++;
+    const chord = changes[change];
+    const custom = chord.frets.slice(0, 4).findIndex(fret => fret >= 0);
+    const root = BASS_ROOTS[progression[chord.step].chord.name] ?? (custom >= 0 ? [custom, chord.frets[custom]] : null);
+    if (!root) continue;
+    const [string, fret] = root;
+    const fifth = string < 3 && fret <= 10 && Math.round(beat - chord.time / beatSeconds) % 4 === 2;
+    const picked = fifth ? string + 1 : string;
+    const frets: Frets = [-1, -1, -1, -1, -1, -1];
+    frets[picked] = fret + (fifth ? 2 : 0);
+    events.push({ time: beat * beatSeconds, frets, direction: pickString(picked), strength: fifth ? .68 : .85, step: chord.step });
+  }
+  return { ...score, events };
 }

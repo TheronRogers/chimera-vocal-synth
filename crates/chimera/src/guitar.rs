@@ -7,12 +7,13 @@ pub mod instrument;
 
 pub const STRING_COUNT: usize = 6;
 pub const N: usize = 256;
-pub const GUITAR_LAYOUT_VERSION: u32 = 5;
+pub const GUITAR_LAYOUT_VERSION: u32 = 6;
 pub const TELE_HEADER: usize = 70;
 pub const STRING_TELE_LEN: usize = 7 + N + 1;
 pub const TELE_LEN: usize = TELE_HEADER + STRING_COUNT * STRING_TELE_LEN;
 pub const CAPACITY: usize = 2048;
 pub const LENGTH: f64 = 0.648;
+pub const BASS_OPEN_MIDI: [u8; 4] = [28, 33, 38, 43];
 pub const OPEN_MIDI: [u8; STRING_COUNT] = [40, 45, 50, 55, 59, 64];
 const PULL_SECONDS: f64 = 0.025;
 const STRUM_SECONDS: f64 = 0.008;
@@ -23,7 +24,7 @@ pub struct GuitarEvent {
     /// Audible first-string release, in seconds relative to the score start.
     pub time: f64,
     pub frets: [i8; STRING_COUNT],
-    /// +1 low to high, -1 high to low, 0 changes the chord without excitation.
+    /// +1 low to high, -1 high to low, 0 changes the chord, 2 through 7 pluck strings 0 through 5.
     pub direction: i8,
     pub strength: f64,
     pub step: u16,
@@ -37,6 +38,48 @@ impl Default for GuitarEvent {
             strength: 0.0,
             step: 0,
         }
+    }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum Pickup {
+    #[default]
+    Acoustic,
+    SingleCoil,
+    Humbucker,
+}
+
+#[derive(Default)]
+struct PickupCircuit {
+    b: [f64; 3],
+    a: [f64; 2],
+    state: [f64; 2],
+}
+
+impl PickupCircuit {
+    fn new(pickup: Pickup, fs: f64) -> Self {
+        // Loaded RLC response. Higher series inductance lowers the humbucker resonance.
+        let (hz, q, gain) = match pickup {
+            Pickup::Acoustic => return Self::default(),
+            Pickup::SingleCoil => (4300.0_f64, 1.35, 0.38),
+            Pickup::Humbucker => (2700.0_f64, 0.95, 0.54),
+        };
+        let phase = math::TAU * hz.min(fs * 0.4) / fs;
+        let cos = math::cos(phase);
+        let alpha = math::sin(phase) / (2.0 * q);
+        let b = gain * (1.0 - cos) / (2.0 * (1.0 + alpha));
+        Self {
+            b: [b, 2.0 * b, b],
+            a: [-2.0 * cos / (1.0 + alpha), (1.0 - alpha) / (1.0 + alpha)],
+            state: [0.0; 2],
+        }
+    }
+
+    fn step(&mut self, input: f64) -> f64 {
+        let out = self.b[0] * input + self.state[0];
+        self.state[0] = self.b[1] * input - self.a[0] * out + self.state[1];
+        self.state[1] = self.b[2] * input - self.a[1] * out;
+        out
     }
 }
 
@@ -67,6 +110,8 @@ struct StringVoice {
     contact: bool,
     position: usize,
     pickup_position: usize,
+    magnetic_taps: [f64; 2],
+    pluck_position: f64,
     pull: f64,
     target: f64,
     prepare: u64,
@@ -113,6 +158,8 @@ impl StringVoice {
             contact: false,
             position: (n as f64 * 0.8).round() as usize,
             pickup_position: (n as f64 * 0.863).round() as usize,
+            magnetic_taps: [0.0; 2],
+            pluck_position: 0.8,
             pull: 0.0,
             target: 0.0,
             prepare: NO_EVENT,
@@ -178,17 +225,38 @@ impl StringVoice {
         self.dc_y = 0.0;
         self.sum = 0.0;
     }
-    fn schedule(&mut self, release: u64, pull_samples: u64, strength: f64) {
+    fn schedule(&mut self, release: u64, pull_samples: u64, strength: f64, position: f64) {
+        self.pluck_position = position;
         self.stroke_release = NO_EVENT;
         self.target = 0.0025 * strength;
         self.prepare = release.saturating_sub(pull_samples);
         self.release = release;
     }
-    fn tick(&mut self, clock: u64, fs: f64, bridge: f64) -> (f64, f64) {
+    fn sense(&self, pickup: Pickup) -> f64 {
+        if pickup == Pickup::Acoustic {
+            return self.y[self.pickup_position];
+        }
+        let sample = |x: f64| {
+            let i = x as usize;
+            self.y[i] + (self.y[i + 1] - self.y[i]) * (x - i as f64)
+        };
+        let first = sample(self.magnetic_taps[0]);
+        if pickup == Pickup::Humbucker {
+            // Opposite magnetic polarity and winding make string signals add.
+            // The separated coils average different points of the standing wave.
+            0.5 * (first + sample(self.magnetic_taps[1]))
+        } else {
+            first
+        }
+    }
+
+    fn tick(&mut self, clock: u64, fs: f64, bridge: f64, pickup: Pickup) -> (f64, f64) {
         if self.prepare != NO_EVENT && clock >= self.prepare {
             self.prepare = NO_EVENT;
             self.contact = true;
             self.active = true;
+            self.position = ((self.n as f64 * self.pluck_position).round() as usize)
+                .clamp(self.boundary + 1, self.n - 1);
             self.pull = self.y[self.position];
         }
         if self.release != NO_EVENT && clock >= self.release {
@@ -201,7 +269,7 @@ impl StringVoice {
         if !self.active {
             return (0.0, 0.0);
         }
-        let before = self.y[self.pickup_position];
+        let before = self.sense(pickup);
         let muted = self.held || self.fret < 0;
         self.y[self.n] = if muted { 0.0 } else { bridge };
         let force = self.tension * (self.y[self.n - 1] - self.y[self.n]) / (LENGTH / self.n as f64);
@@ -216,10 +284,14 @@ impl StringVoice {
             let current = self.y[self.boundary..=self.n].windows(3);
             let previous = self.prev[self.boundary..=self.n].windows(3);
             for ((next, y), old) in self.next[self.boundary + 1..self.n]
-                .iter_mut().zip(current).zip(previous)
+                .iter_mut()
+                .zip(current)
+                .zip(previous)
             {
-                *next = current_center * y[1] + current_edge * (y[0] + y[2])
-                    + previous_center * old[1] + previous_edge * (old[0] + old[2]);
+                *next = current_center * y[1]
+                    + current_edge * (y[0] + y[2])
+                    + previous_center * old[1]
+                    + previous_edge * (old[0] + old[2]);
             }
             if self.pad_position > self.boundary
                 && self.pad_position < self.n
@@ -253,7 +325,7 @@ impl StringVoice {
                 .fold(0.0f64, |p, x| p.max(x.abs()));
             self.envelope = self.envelope.max(peak);
         }
-        let pickup = (self.y[self.pickup_position] - before) * fs * 0.15;
+        let pickup = (self.sense(pickup) - before) * fs * 0.15;
         let highpass = pickup - self.dc_x + 0.995 * self.dc_y;
         self.dc_x = pickup;
         self.dc_y = highpass;
@@ -273,8 +345,13 @@ impl StringVoice {
 }
 
 pub struct GuitarVoice {
+    pickup: Pickup,
+    magnetic_position: f64,
+    pickup_circuit: PickupCircuit,
+    strum_position: f64,
     body_profile: usize,
     string_profile: usize,
+    bass: bool,
     strings: [StringVoice; STRING_COUNT],
     body: body::Body,
     fs: f64,
@@ -316,8 +393,13 @@ impl GuitarVoice {
             48000.0
         };
         Self {
+            pickup: Pickup::Acoustic,
+            magnetic_position: 0.86,
+            pickup_circuit: PickupCircuit::default(),
+            strum_position: 0.8,
             body_profile: 0,
             string_profile: 0,
+            bass: false,
             strings: core::array::from_fn(|i| StringVoice::new(fs, OPEN_MIDI[i], i)),
             body: body::Body::new(1.0 / (fs * (96000.0 / fs).ceil().max(2.0))),
             fs,
@@ -352,11 +434,38 @@ impl GuitarVoice {
             grip_pressure: 1.0,
         }
     }
+    /// Switch between standard guitar and four-string bass without reallocating.
+    pub fn set_bass(&mut self, bass: bool) {
+        if self.bass == bass {
+            return;
+        }
+        self.hard_reset();
+        self.bass = bass;
+        let profile = &instrument::STRINGS[self.string_profile];
+        let position = self.magnetic_position;
+        let half_spacing = if self.pickup == Pickup::Humbucker { 0.009 / LENGTH } else { 0.0 };
+        for (i, string) in self.strings.iter_mut().enumerate() {
+            let midi = if bass { BASS_OPEN_MIDI.get(i).copied().unwrap_or(OPEN_MIDI[i]) } else { OPEN_MIDI[i] };
+            *string = StringVoice::new(self.fs, midi, i);
+            string.tension = profile.tension[i];
+            string.set_losses(profile.loss, profile.overtone_loss(i));
+            string.magnetic_taps = [
+                (position - half_spacing) * string.n as f64,
+                (position + half_spacing) * string.n as f64,
+            ];
+            if bass && i >= BASS_OPEN_MIDI.len() {
+                string.set_fret(-1);
+            }
+        }
+        self.grip_target = core::array::from_fn(|i| self.strings[i].fret);
+    }
+
     /// Reconfigure at a command boundary without allocating or changing tuning.
     pub fn set_instrument(&mut self, body: usize, strings: usize) {
-        let (Some(body_model), Some(string_model)) =
-            (instrument::BODIES.get(body), instrument::STRINGS.get(strings))
-        else {
+        let (Some(body_model), Some(string_model)) = (
+            instrument::BODIES.get(body),
+            instrument::STRINGS.get(strings),
+        ) else {
             return;
         };
         if (body, strings) == (self.body_profile, self.string_profile) {
@@ -384,12 +493,45 @@ impl GuitarVoice {
         self.grip_at = self.clock.max(1);
         self.grip_tick();
     }
+    /// Position runs from the nut (0) to the bridge (1) on the full scale.
+    pub fn set_strum_position(&mut self, position: f64) {
+        if position.is_finite() {
+            self.strum_position = position.clamp(0.72, 0.96);
+        }
+    }
+
+    pub fn set_pickup(&mut self, pickup: Pickup, position: f64) {
+        if !position.is_finite() {
+            return;
+        }
+        let position = position.clamp(0.72, 0.96);
+        if self.pickup != pickup {
+            self.pickup_circuit = PickupCircuit::new(pickup, self.fs);
+            self.body.clear();
+        } else if self.magnetic_position == position {
+            return;
+        }
+        self.pickup = pickup;
+        self.magnetic_position = position;
+        let half_spacing = if pickup == Pickup::Humbucker {
+            0.009 / LENGTH
+        } else {
+            0.0
+        };
+        for string in &mut self.strings {
+            string.magnetic_taps = [
+                (position - half_spacing) * string.n as f64,
+                (position + half_spacing) * string.n as f64,
+            ];
+        }
+    }
+
     pub fn clock(&self) -> f64 {
         self.clock as f64 / self.fs
     }
     pub fn set_fret(&mut self, index: usize, fret: i8) {
         if let Some(s) = self.strings.get_mut(index) {
-            s.set_fret(fret);
+            s.set_fret(if self.bass && index >= BASS_OPEN_MIDI.len() { -1 } else { fret });
         }
     }
     /// Atomic clean grip: pressure is normalized preload; low pressure dissipates
@@ -398,7 +540,10 @@ impl GuitarVoice {
         self.grip_pressure = strength_value(pressure);
         self.set_shape_at(frets, self.clock + (self.fs * 0.1).round() as u64);
     }
-    fn set_shape_at(&mut self, frets: [i8; 6], deadline: u64) {
+    fn set_shape_at(&mut self, mut frets: [i8; 6], deadline: u64) {
+        if self.bass {
+            frets[BASS_OPEN_MIDI.len()..].fill(-1);
+        }
         if self.grip_target == frets
             && self
                 .strings
@@ -460,12 +605,21 @@ impl GuitarVoice {
                 return;
             }
             self.fade = 0;
-            s.schedule(
-                self.clock.max(self.grip_at) + self.pull_samples,
-                self.pull_samples,
-                strength,
-            );
+            let release = self.clock.max(self.grip_at) + self.pull_samples;
+            self.schedule_pick(index, release, strength);
         }
+    }
+    fn schedule_pick(&mut self, index: usize, release: u64, strength: f64) {
+        self.last_direction = 0;
+        self.last_strum = -1.0;
+        for string in &mut self.strings {
+            if string.stroke_release != release {
+                string.stroke_release = NO_EVENT;
+            }
+        }
+        let string = &mut self.strings[index];
+        string.schedule(release, self.pull_samples, strength, self.strum_position);
+        string.stroke_release = release;
     }
     pub fn strum(&mut self, direction: i8, strength: f64) {
         let strength = strength_value(strength);
@@ -506,7 +660,7 @@ impl GuitarVoice {
             }
             let string = &mut self.strings[index];
             let deadline = release.saturating_add(onset * self.spacing);
-            string.schedule(deadline, self.pull_samples, strength);
+            string.schedule(deadline, self.pull_samples, strength, self.strum_position);
             string.stroke_release = deadline;
             onset += 1;
         }
@@ -555,8 +709,13 @@ impl GuitarVoice {
             }
             let mut event = *event;
             event.frets = event.frets.map(|f| f.clamp(-1, 12));
+            if self.bass {
+                event.frets[BASS_OPEN_MIDI.len()..].fill(-1);
+            }
             event.strength = strength_value(event.strength);
-            event.direction = event.direction.signum();
+            if !(-1..=7).contains(&event.direction) {
+                event.direction = 0;
+            }
             previous = event.time;
             self.score[self.score_len] = event;
             self.score_len += 1;
@@ -605,6 +764,7 @@ impl GuitarVoice {
         self.count = 0;
         self.body_envelope = 0.0;
         self.pickup_low = 0.0;
+        self.pickup_circuit.state = [0.0; 2];
     }
     fn find_event(&self, from: usize, strum: bool) -> usize {
         self.score[from..self.score_len]
@@ -680,7 +840,14 @@ impl GuitarVoice {
                 self.set_shape_at(event.frets, release);
                 self.fret_event = release;
             }
-            self.schedule_strum(release, event.direction, event.strength);
+            if event.direction >= 2 {
+                let index = (event.direction - 2) as usize;
+                if !self.strings[index].held && event.frets[index] >= 0 && event.strength > 0.0 {
+                    self.schedule_pick(index, release, event.strength);
+                }
+            } else {
+                self.schedule_strum(release, event.direction, event.strength);
+            }
             self.advance_event(strum);
         }
         if !self.looping && self.clock >= self.start.saturating_add(self.duration) {
@@ -689,6 +856,7 @@ impl GuitarVoice {
     }
     pub fn render(&mut self, out: &mut [f32]) {
         let presence = instrument::BODIES[self.body_profile].string_presence;
+        let acoustic = self.pickup == Pickup::Acoustic;
         for sample in out {
             self.score_tick();
             self.grip_tick();
@@ -699,15 +867,24 @@ impl GuitarVoice {
                 let mut force = 0.0;
                 let mut pickup = 0.0;
                 for s in &mut self.strings {
-                    let (p, f) = s.tick(self.clock, self.fs * sub as f64, self.body.bridge);
+                    let (p, f) = s.tick(
+                        self.clock,
+                        self.fs * sub as f64,
+                        self.body.bridge,
+                        self.pickup,
+                    );
                     pickup += p;
                     force += f;
                 }
-                let radiation = self.body.step(force);
-                value += (radiation * 0.95 + pickup * 0.28) / sub as f64;
+                if acoustic {
+                    let radiation = self.body.step(force);
+                    value += (radiation * 0.95 + pickup * 0.28) / sub as f64;
+                }
                 pickup_sum += pickup;
             }
-            if presence > 0.0 {
+            if !acoustic {
+                value = self.pickup_circuit.step(pickup_sum / sub as f64);
+            } else if presence > 0.0 {
                 // Bring back string attack above the flat tops' body resonances.
                 let pickup = pickup_sum / sub as f64;
                 self.pickup_low += (pickup - self.pickup_low) * self.pickup_low_step;

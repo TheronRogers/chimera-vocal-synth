@@ -10,8 +10,17 @@ The optional singer shares its timeline and output. Sing mode remains voice-only
   F and Bm include a barre. Custom shapes show contacts that exceed four fretting fingers
   in amber; they still sound, without inventing extra fingers on the hand.
 - Strum Down / Space sweeps low to high. Strum Up / Shift+Space sweeps high to low.
-  Each string also has a Pluck button. Keyboard shortcuts ignore editable controls.
-- Hold a string near the picking hand, or hold its Mute button with a pointer, Space,
+  Each string also has a Pluck button. Set **Touch strings** to **Tap to pluck**
+  to play individual notes directly on the 3D strings using their current frets.
+  Keyboard shortcuts ignore editable controls.
+- **Guitar tablature** plays six rows from high e to low E. Each space-separated
+  column is an eighth note at the accompaniment tempo. Enter 0 for open, 1–12
+  for a fret, or a dash to skip the string in that column. Frets in the same column
+  pluck together. Edit the example and press **Play tab** to hear it once.
+- Choose **Fingerstyle** under **Playing style** to alternate the thumb among playable
+  low E, A and D strings. Index, middle and ring pluck G, B and high E as eighth notes. Strings marked Skip are silent.
+  The pattern follows chord changes and also works with the singer.
+- In **Hold to mute** mode, hold a string near the picking hand, or hold its Mute button with a pointer, Space,
   or Enter. The original string remains damped for that entire contact. Pointer motion
   does nothing. Releasing a contact does not pluck. Independent touches can mute several
   strings, and plucks/strums cannot override a held mute.
@@ -30,10 +39,13 @@ The optional singer shares its timeline and output. Sing mode remains voice-only
   pole follows the metacarpal axis to limit wrist bend as the hand moves up the neck.
 - Both hands use the same articulated carpal, metacarpal and phalange renderer and mirrored
   anatomical proportions. The strumming thumb opposes the curled index finger around a
-  triangular pick; the other fingers curl naturally. Its elbow rests beside the guitar's
+  triangular pick during strums. In fingerstyle, the bare thumb and fingers flex toward
+  the individual strings. Its elbow rests beside the guitar's
   upper bout, with the wrist aligned toward the soundhole. The pick tip follows the
   audio clock through each string's release point. It lifts over skipped and held-muted
-  strings while the grip and bone lengths stay fixed.
+  strings while the grip and bone lengths stay fixed. The amber line across the strings
+  follows the Strum position slider. In fingerstyle, the wrist stays above the selected
+  position while only the active digits move to the strings.
 - The four finger metacarpals keep fixed lengths and a common palm axis. Knuckle anchors
   retain their order and spacing when fingers curl; the thumb's existing first link is its
   metacarpal. Chord transitions keep the phalange lengths and constrain each hinge throughout.

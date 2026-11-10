@@ -4,7 +4,7 @@ import { initEngine } from "./harness.ts";
 import { CHORDS, type Frets } from "../src/guitar/model.ts";
 import type { HandPlan } from "../src/guitar/physical.ts";
 import { call } from "../src/wasm/chimera.ts";
-import { frettingArm, solveArm, performerShoulder, pickingPose, pickingArm } from "../src/ui/render/guitar-hand.ts";
+import { fingerstylePose, frettingArm, solveArm, performerShoulder, pickingPose, pickingArm } from "../src/ui/render/guitar-hand.ts";
 
 beforeAll(initEngine);
 
@@ -86,5 +86,43 @@ test("pick hands mirror the same bones and keep thumb and index pinching the pic
     expect(arm.elbow.y).toBeGreaterThan(-.30);
     expect(arm.shoulder.distanceTo(arm.elbow)).toBeCloseTo(.29,9);
     expect(arm.elbow.distanceTo(arm.wrist)).toBeCloseTo(.24,9);
+  }
+});
+
+test("fingerstyle reaches each string without moving the wrist or other digits", () => {
+  for (const x of [.648 * .72, .648 * .96]) {
+    const stringY = (string: number) => (string - 2.5) * .011;
+    const anchor = new Vector3(x, stringY(3), .012);
+    const resting = fingerstylePose(anchor, [], stringY);
+    for (const [digit, string] of [[0, 1], [1, 3], [2, 4], [3, 5]]) {
+      const finger = resting.fingers.find(f => f.finger === digit)!;
+      const tip = new Vector3(...finger.points[3]);
+      expect(tip.distanceTo(new Vector3(x, stringY(string), .012))).toBeLessThan(.001);
+      if (digit > 0) {
+        const [knuckle, , lastJoint, fingertip] = finger.points;
+        // The fingertip curls back toward the palm.
+        expect(lastJoint[0]).toBeLessThan(Math.min(knuckle[0], fingertip[0]));
+      }
+    }
+    for (let string = 0; string < 6; string++) {
+      const digit = Math.max(0, string - 2);
+      const point = new Vector3(x, stringY(string), .004);
+      const posed = fingerstylePose(anchor, [{digit, point, amount: 1}], stringY);
+      expect(posed.wrist.toArray()).toEqual(resting.wrist.toArray());
+      expect(posed.knuckles.toArray()).toEqual(resting.knuckles.toArray());
+      for (const [index, finger] of posed.fingers.entries()) {
+        const rest = resting.fingers[index].points;
+        if (finger.finger !== digit) {
+          expect(finger.points).toEqual(rest);
+          continue;
+        }
+        expect(finger.points[0]).toEqual(rest[0]);
+        expect(new Vector3(...finger.points[3]).distanceTo(point)).toBeLessThan(.001);
+        for (let joint = 1; joint < 4; joint++) {
+          const length = new Vector3(...finger.points[joint]).distanceTo(new Vector3(...finger.points[joint-1]));
+          expect(length).toBeCloseTo(new Vector3(...rest[joint]).distanceTo(new Vector3(...rest[joint-1])), 8);
+        }
+      }
+    }
   }
 });

@@ -685,3 +685,83 @@ fn instrument_presets_change_tone_independently_and_preserve_held_mutes() {
         assert!(string_brightness[strings] < string_brightness[0] * 0.92, "{string_brightness:?}");
     }
 }
+
+#[test]
+fn electric_pickup_changes_the_signal_without_moving_the_string() {
+    use chimera::guitar::Pickup;
+    let play = |pickup, position| {
+        let mut voice = GuitarVoice::new(48000.0);
+        voice.set_pickup(pickup, position);
+        voice.pluck(0, 0.8);
+        let audio = render(&mut voice, 8192);
+        assert!(rms(&audio) > 0.001);
+        assert!(audio.iter().all(|x| x.is_finite() && x.abs() < 1.0));
+        let state = snapshot(&mut voice);
+        (audio, state[TELE_HEADER + 7..TELE_HEADER + STRING_TELE_LEN].to_vec())
+    };
+    let (neck, string) = play(Pickup::SingleCoil, 0.73);
+    let (bridge, same_string) = play(Pickup::SingleCoil, 0.94);
+    let (humbucker, same_again) = play(Pickup::Humbucker, 0.94);
+    assert_eq!(string, same_string);
+    assert_eq!(string, same_again);
+    assert_ne!(neck, bridge);
+    assert_ne!(bridge, humbucker);
+}
+
+#[test]
+fn strum_position_moves_the_contact_and_changes_the_vibration() {
+    use chimera::guitar::Pickup;
+    let play = |position| {
+        let mut voice = GuitarVoice::new(48000.0);
+        voice.set_pickup(Pickup::SingleCoil, 0.86);
+        voice.set_strum_position(position);
+        voice.set_fret(0, 12);
+        voice.strum(1, 0.8);
+        let _ = render(&mut voice, 1000);
+        let pulling = snapshot(&mut voice);
+        assert_eq!(pulling[TELE_HEADER + 2], 1.0);
+        assert!((pulling[TELE_HEADER + 3] - position).abs() < 0.004);
+        let audio = render(&mut voice, 8192);
+        assert!(rms(&audio) > 0.001);
+        let ringing = snapshot(&mut voice);
+        ringing[TELE_HEADER + 7..TELE_HEADER + STRING_TELE_LEN].to_vec()
+    };
+    assert_ne!(play(0.72), play(0.96));
+}
+
+#[test]
+fn bass_has_four_octave_lower_strings_and_restores_guitar_tuning() {
+    use chimera::guitar::{BASS_OPEN_MIDI, Pickup};
+    let fs = 48000.0;
+    let fft = Fft::new(32768);
+    let window = hann(fft.n);
+    let mut voice = GuitarVoice::new(fs);
+    voice.set_pickup(Pickup::Humbucker, 0.76);
+    voice.set_bass(true);
+    voice.set_fret(4, 0);
+    voice.pluck(4, 1.0);
+    assert_eq!(rms(&render(&mut voice, 8000)), 0.0);
+
+    let mut check_pitch = |bass: bool, string: usize, midi: u8| {
+        voice.hard_reset();
+        voice.set_bass(bass);
+        voice.set_fret(string, 0);
+        voice.pluck(string, 0.8);
+        render(&mut voice, 6000);
+        let samples = render(&mut voice, fft.n);
+        assert!(rms(&samples) > 0.00001);
+        let mut re: Vec<f64> = samples.iter().zip(&window).map(|(s, w)| *s as f64 * w).collect();
+        let mut im = vec![0.0; fft.n];
+        fft.transform(&mut re, &mut im);
+        let expected = 440.0 * 2.0f64.powf((midi as f64 - 69.0) / 12.0);
+        let center = (expected * fft.n as f64 / fs).round() as usize;
+        let power = |i: usize| re[i].powi(2) + im[i].powi(2);
+        assert!(power(center).max(power(center + 1)).max(power(center - 1)) > 0.001);
+        assert!(power(center).max(power(center + 1)).max(power(center - 1)) > power(center / 2) * 20.0);
+    };
+    for (string, midi) in BASS_OPEN_MIDI.into_iter().enumerate() {
+        check_pitch(true, string, midi);
+    }
+    check_pitch(false, 0, OPEN_MIDI[0]);
+    check_pitch(false, 4, OPEN_MIDI[4]);
+}

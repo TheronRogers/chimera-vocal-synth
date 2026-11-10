@@ -62,8 +62,8 @@ export function frettingArm(plan: HandPlan, shoulder = new Vector3(.42, -.035, -
 /** The same phalange lengths as the fretting solver, from index to little finger. */
 export const FINGER_LENGTHS = [[.044,.026,.019],[.048,.029,.020],[.045,.028,.020],[.036,.023,.018]] as const;
 
-/** A right pick grip; -1 reflects the entire anatomy to make the left hand. */
-export function pickingPose(handedness: 1 | -1 = 1, deviation = 0, tip?: Vector3) {
+/** Place the pick tip or the bare index fingertip at the supplied anchor. */
+export function pickingPose(handedness: 1 | -1 = 1, deviation = 0, tip?: Vector3, bareHand = false) {
   const wrist = new Vector3(.65, -.040, .070);
   const rotation = new Quaternion().setFromAxisAngle(new Vector3(0,0,1), Math.PI/3)
     .multiply(new Quaternion().setFromAxisAngle(new Vector3(1,0,0), .04 + deviation));
@@ -72,22 +72,24 @@ export function pickingPose(handedness: 1 | -1 = 1, deviation = 0, tip?: Vector3
   for (let f = 0; f < 4; f++) {
     let p = new Vector3([-.024,-.008,.009,.024][f], [.075,.080,.076,.065][f], 0);
     const points = [p.clone()];
-    const angles = f === 0 ? [1.22,2.36,3.49] : [1.10,2.40,3.10];
+    const angles = bareHand ? [0.60,1.25,2.85] : f === 0 ? [1.22,2.36,3.49] : [1.10,2.40,3.10];
     FINGER_LENGTHS[f].forEach((length,j) => {
       p = p.clone().add(new Vector3(0, length*Math.cos(angles[j]), -length*Math.sin(angles[j])));
       points.push(p);
     });
     fingers.push({finger:f+1,barre:false,points:points.map(p=>point(p).toArray())});
   }
-  // Thumb CMC/MCP/IP chain opposes the folded index pad, with a pick between the pads.
+  // Oppose the index around the pick, or extend the thumb toward the bass strings.
   const indexTip = new Vector3(...fingers[0].points[3]);
   const localIndex = indexTip.clone().sub(wrist).applyQuaternion(rotation.clone().invert());
   localIndex.x *= handedness;
-  const thumbTip = localIndex.clone().add(new Vector3(-.006,0,.006));
-  const thumbBase = new Vector3(-.036,.005,.002);
+  const thumbTip = !bareHand
+    ? localIndex.clone().add(new Vector3(-.006,0,.006))
+    : new Vector3(-.072,.082,-.023);
+  const thumbBase = new Vector3(-.036,bareHand ? .030 : .005,.002);
   const distal = Math.hypot(.018,.016);
   const thumbIP = thumbTip.clone().add(new Vector3(0,distal*.5,distal*Math.sqrt(3)/2));
-  const thumb = solveArm(thumbBase,thumbIP,new Vector3(-.060,.060,.045),.045,.035);
+  const thumb = solveArm(thumbBase,thumbIP,new Vector3(-.060,bareHand ? .085 : .060,.045),.045,.035);
   fingers.push({finger:0,barre:false,points:[thumbBase,thumb.elbow,thumbIP,thumbTip].map(p=>point(p).toArray())});
   const thumbWorld = point(thumbTip);
   const grip = indexTip.clone().add(thumbWorld).multiplyScalar(.5);
@@ -105,7 +107,8 @@ export function pickingPose(handedness: 1 | -1 = 1, deviation = 0, tip?: Vector3
   fingers.filter(f=>f.finger>0).forEach(f=>knuckles.add(new Vector3(...f.points[0])));
   knuckles.multiplyScalar(.25);
   if (tip) {
-    const shift = tip.clone().sub(pick[2]);
+    const contact = bareHand ? indexTip : pick[2];
+    const shift = tip.clone().sub(contact);
     wrist.add(shift);
     knuckles.add(shift);
     grip.add(shift);
@@ -115,6 +118,44 @@ export function pickingPose(handedness: 1 | -1 = 1, deviation = 0, tip?: Vector3
     }
   }
   return {wrist,forward,side,normal,palmForward:forward,palmSide:side,palmNormal:normal,knuckles,fingers,pick,grip,pickNormal,rotation};
+}
+
+/** Fit the curled hand to the strings, then move only the digits that are plucking. */
+export function fingerstylePose(anchor: Vector3, contacts: readonly {digit: number; point: Vector3; amount: number}[], restingStringY: (string: number) => number) {
+  const pose = pickingPose(1, -.20, anchor, true);
+  const fitTip = (digit: number, point: Vector3, amount: number) => {
+    const finger = pose.fingers.find(f => f.finger === digit)!;
+    const joints = finger.points.map(p => new Vector3(...p));
+    const root = joints[0].clone();
+    const lengths = joints.slice(1).map((p, i) => p.distanceTo(joints[i]));
+    const target = joints[3].clone().lerp(point, amount);
+    const reach = lengths.reduce((sum, length) => sum + length, 0);
+    if (root.distanceTo(target) >= reach) {
+      const axis = target.clone().sub(root).normalize();
+      for (let i = 1; i < 4; i++) joints[i].copy(joints[i-1]).addScaledVector(axis, lengths[i-1]);
+    } else {
+      const axis = new Vector3();
+      for (let iteration = 0; iteration < 12 && joints[3].distanceToSquared(target) > 1e-10; iteration++) {
+        joints[3].copy(target);
+        for (let i = 2; i >= 0; i--) {
+          axis.subVectors(joints[i], joints[i+1]).setLength(lengths[i]);
+          joints[i].copy(joints[i+1]).add(axis);
+        }
+        joints[0].copy(root);
+        for (let i = 1; i < 4; i++) {
+          axis.subVectors(joints[i], joints[i-1]).setLength(lengths[i-1]);
+          joints[i].copy(joints[i-1]).add(axis);
+        }
+      }
+    }
+    finger.points = joints.map(p => p.toArray());
+  };
+  // The thumb floats over A, centered in its three-string range. Keep the little finger curled free.
+  for (const [digit, string] of [[0, 1], [1, 3], [2, 4], [3, 5]]) {
+    fitTip(digit, new Vector3(anchor.x, restingStringY(string), anchor.z), 1);
+  }
+  for (const {digit, point, amount} of contacts) fitTip(digit, point, amount);
+  return pose;
 }
 
 /** Interpolate the pick tip through the audio engine's string release points. */

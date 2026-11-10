@@ -18,7 +18,9 @@ export type BodyName = "male" | "female" | "child";
 /** Guitar ABI v3: activate, string fret, held mute, string pluck, strum, stop, mix, grip, drum mix, drum hit. */
 /** op 9: a=surface, b=strength, c=travel lead in seconds (0 means immediate). */
 /** op 10: a=hi-hat pedal travel from released to tight (0–1). */
-export type GuitarOp = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+/** op 12: a=acoustic (0), single coil (1), or humbucker (2); b=pickup position. */
+/** op 13: a=strum position. Both positions are fractions of the scale from the nut. */
+export type GuitarOp = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
 export interface GuitarStringTelemetry {
   fret: number; muted: boolean; plucking: boolean; position: number; pull: number;
   envelope: number; rms: number; displacement: Float32Array;

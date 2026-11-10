@@ -2972,3 +2972,12 @@ input[type="range"]::-moz-range-thumb {
 }
 .drum-track button[aria-pressed="true"] { color: var(--green); border-color: var(--green); }
 .drum-track button:disabled { cursor: default; }
+
+.s-guitar-tab { grid-column: 1 / -1; }
+.guitar-tab-input {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  font-family: monospace;
+  overflow: auto;
+}
