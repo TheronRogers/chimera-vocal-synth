@@ -612,6 +612,14 @@ pub unsafe extern "C" fn engine_guitar(h: *mut Handle, op: u32, a: f64, b: f64, 
     }
 }
 
+/// Queue a score strike relative to the drum clock without staggering simultaneous hits.
+/// # Safety
+/// h must be a live engine handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_drum_score_hit(h: *mut Handle, surface: usize, strength: f64, lead: f64) {
+    handle!(h).engine.drums.queue_score_hit(surface, strength, lead);
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn engine_guitar_layout_version() -> u32 { chimera::guitar::GUITAR_LAYOUT_VERSION }
 #[unsafe(no_mangle)]

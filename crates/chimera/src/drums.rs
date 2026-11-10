@@ -470,15 +470,26 @@ impl RockKit {
     }
     /// A manual strike reserves travel time; same-hand requests cannot pile up at one instant.
     pub fn queue_hit(&mut self, id: usize, force: f64, lead: f64) {
+        self.enqueue_hit(id, force, lead, true);
+    }
+
+    /// A score can voice several surfaces at the same sample.
+    pub fn queue_score_hit(&mut self, id: usize, force: f64, lead: f64) {
+        self.enqueue_hit(id, force, lead, false);
+    }
+
+    fn enqueue_hit(&mut self, id: usize, force: f64, lead: f64, reserve_hand: bool) {
         if !self.enabled || id >= 8 || !force.is_finite() || !lead.is_finite() {
             return;
         }
         let mut at = self
             .clock
             .saturating_add((lead.clamp(0.0, 1.0) * self.fs).round() as u64);
-        for p in &self.pending {
-            if p.at != u64::MAX && hand(p.id) == hand(id) {
-                at = at.max(p.at.saturating_add((self.fs * 0.12) as u64));
+        if reserve_hand {
+            for p in &self.pending {
+                if p.at != u64::MAX && hand(p.id) == hand(id) {
+                    at = at.max(p.at.saturating_add((self.fs * 0.12) as u64));
+                }
             }
         }
         if let Some(slot) = self.pending.iter_mut().find(|p| p.at == u64::MAX) {

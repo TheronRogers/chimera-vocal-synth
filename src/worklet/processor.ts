@@ -9,6 +9,7 @@
 import { writeGestures, writeSteps, fromUtf8, utf8, CONTROL_KEYS } from "../wasm/wire.ts";
 import { DRUM_LAYOUT_VERSION, DRUM_TELE_LEN, readDrumTelemetry } from "../wasm/drum-wire.ts";
 import { GUITAR_LAYOUT_VERSION, GUITAR_TELE_LEN, readGuitarTelemetry, writeGuitarEvents } from "../wasm/guitar-wire.ts";
+import { DRUM_NAMES, validDrumScore, type DrumScore } from "../drums/score.ts";
 import type { ToWorklet, FromWorklet, TelemetryMessage } from "./protocol.ts";
 import type { BodyMix, CreatureTelemetry } from "../wasm/types.ts";
 
@@ -44,6 +45,10 @@ class ChimeraProcessor extends AudioWorkletProcessor {
   private readonly h: number;
   private failed = false;
   private guitar = false;
+  private drumScore: DrumScore | null = null;
+  private drumFrame = 0;
+  private nextDrumStep = 0;
+  private drumStep = -1;
   private telemetryOn = true;
   private blocks = 0;
   private load = 0;
@@ -164,7 +169,19 @@ class ChimeraProcessor extends AudioWorkletProcessor {
       }
       case "guitar":
         if (m.op === 0) this.guitar = !!m.a;
+        if (m.op === 0 || m.op === 5) {
+          this.drumScore = null;
+          this.drumStep = -1;
+        }
         x.engine_guitar(h, m.op, m.a ?? 0, m.b ?? 0, m.c ?? 0);
+        break;
+      case "drumScore":
+        if (!this.guitar || !validDrumScore(m.score)) break;
+        x.engine_guitar(h, 5, 0, 0, 0);
+        this.drumScore = m.score;
+        this.drumFrame = -Math.round(.25 * sampleRate);
+        this.nextDrumStep = 0;
+        this.drumStep = -1;
         break;
       case "beatHit":
         writeSteps(this.mem, x.engine_records(h), [{ id: m.id, note: m.note, accent: m.accent }]);
@@ -194,6 +211,27 @@ class ChimeraProcessor extends AudioWorkletProcessor {
     }
   }
 
+  private advanceDrumScore(frames: number): void {
+    const score = this.drumScore;
+    if (!score) return;
+    const stepFrames = sampleRate * 30 / score.bpm;
+    // Queue ahead so the drummer can reach for each surface before the strike.
+    const horizon = this.drumFrame + .23 * sampleRate;
+    while (Math.round(this.nextDrumStep * stepFrames) <= horizon) {
+      const at = Math.round(this.nextDrumStep * stepFrames);
+      const mask = score.steps[this.nextDrumStep % score.steps.length];
+      for (let surface = 0; surface < DRUM_NAMES.length; surface++) {
+        if (mask & (1 << surface)) {
+          const strength = surface === 5 ? (this.nextDrumStep % 2 ? .45 : .62) : .85;
+          this.x.engine_drum_score_hit(this.h, surface, strength, (at - this.drumFrame) / sampleRate);
+        }
+      }
+      this.nextDrumStep++;
+    }
+    this.drumFrame += frames;
+    this.drumStep = this.drumFrame < 0 ? -1 : Math.floor(this.drumFrame / stepFrames) % score.steps.length;
+  }
+
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     const out = outputs[0];
     if (!out || out.length === 0) return true;
@@ -204,6 +242,7 @@ class ChimeraProcessor extends AudioWorkletProcessor {
     }
     const t0 = Date.now();
     try {
+      this.advanceDrumScore(ch0.length);
       const p = this.x.engine_render(this.h, ch0.length);
       ch0.set(new Float32Array(this.mem, p, ch0.length));
     } catch (err) {
@@ -217,7 +256,7 @@ class ChimeraProcessor extends AudioWorkletProcessor {
     if (this.telemetryOn && !this.failed && ++this.blocks % 6 === 0) {
       try {
         if (this.guitar) {
-          this.post({type:"dtelemetry",t:readDrumTelemetry(this.mem,this.x.engine_drum_telemetry(this.h))});
+          this.post({type:"dtelemetry",scoreStep:this.drumStep,t:readDrumTelemetry(this.mem,this.x.engine_drum_telemetry(this.h))});
           const p = this.x.engine_guitar_telemetry(this.h);
           this.post({ type: "gtelemetry", load: this.load, t: readGuitarTelemetry(this.mem,p) });
         }

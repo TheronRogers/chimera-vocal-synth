@@ -14,9 +14,18 @@ type Listener = (t: TelemetryMessage) => void;
 export class AudioEngine {
   latestDrums: import("../worklet/protocol.ts").DrumTelemetry | null = null;
   latestDrumsAt = 0;
+  drumScoreStep = -1;
+
+  playDrumScore(score: import("../drums/score.ts").DrumScore): void {
+    this.drumScoreStep = -1;
+    this.send({ type: "drumScore", score });
+  }
   latestGuitarAt = 0;
   latestGuitar: import("../worklet/protocol.ts").GuitarTelemetry | null = null;
-  guitar(op: import("../worklet/protocol.ts").GuitarOp, a = 0, b = 0, c = 0): void { this.send({ type: "guitar", op, a, b, c }); }
+  guitar(op: import("../worklet/protocol.ts").GuitarOp, a = 0, b = 0, c = 0): void {
+    if (op === 0 || op === 5) this.drumScoreStep = -1;
+    this.send({ type: "guitar", op, a, b, c });
+  }
   ctx: AudioContext | null = null;
   private node: AudioWorkletNode | null = null;
   analyser: AnalyserNode | null = null;
@@ -113,6 +122,7 @@ export class AudioEngine {
       const m = e.data;
       if (m.type === "dtelemetry") {
         this.latestDrums=m.t; this.latestDrumsAt=performance.now();
+        this.drumScoreStep = m.scoreStep;
       } else if (m.type === "gtelemetry") {
         this.latestGuitarAt = performance.now();
         this.latestGuitar = m.t; this.load = m.load;

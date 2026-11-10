@@ -2942,3 +2942,33 @@ input[type="range"]::-moz-range-thumb {
 .guitar-view-controls label { display: flex; align-items: center; gap: 8px; }
 
 .drums-canvas { height: clamp(340px, 52vw, 570px); }
+
+.drum-score { display: grid; gap: 12px; min-width: 0; }
+.drum-score h3 { margin: 0; color: var(--amber); }
+.drum-score-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.drum-score-controls label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.drum-score-controls button, .drum-score-controls input, .drum-score-controls select { min-height: 44px; }
+.drum-track { overflow-x: auto; }
+.drum-track table { border-spacing: 0; text-align: center; }
+.drum-track th, .drum-track td { padding: 2px; }
+.drum-track th:first-child {
+  position: sticky;
+  left: 0;
+  min-width: 96px;
+  background: #080b0d;
+  text-align: left;
+}
+.drum-track .drum-bar { border-left: 1px solid var(--blue-dim); }
+.drum-bar-number { display: block; font-size: 10px; white-space: nowrap; color: var(--amber); }
+.drum-track [aria-current="step"], .drum-track [data-playing="true"] { background: #203b46; }
+.drum-track button {
+  width: 44px;
+  height: 44px;
+  background: #080b0d;
+  border: 1px solid var(--blue-dim);
+  color: var(--blue);
+  font: inherit;
+  cursor: pointer;
+}
+.drum-track button[aria-pressed="true"] { color: var(--green); border-color: var(--green); }
+.drum-track button:disabled { cursor: default; }

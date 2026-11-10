@@ -1,3 +1,4 @@
+import type { DrumScore } from "../drums/score.ts";
 /** Messages between the main thread and the CHIMERA AudioWorklet. */
 import type { HumanArtic } from "../wasm/types.ts";
 import type { VoiceSource, VoiceTelemetry } from "../wasm/types.ts";
@@ -39,6 +40,7 @@ export interface GuitarTelemetry {
 
 export type ToWorklet =
   | { type: "guitar"; op: GuitarOp; a?: number; b?: number; c?: number }
+  | { type: "drumScore"; score: DrumScore }
   | { type: "body"; body: BodyMix }
   | { type: "artic"; values: Partial<HumanArtic>; tipFree?: boolean }
   | { type: "source"; values: Partial<VoiceSource> }
@@ -86,7 +88,7 @@ export interface CreatureTelemetryMessage {
 }
 
 export type FromWorklet =
-  | { type: "dtelemetry"; t: DrumTelemetry }
+  | { type: "dtelemetry"; t: DrumTelemetry; scoreStep: number }
   | { type: "gtelemetry"; t: GuitarTelemetry; load: number }
   | { type: "ready"; sampleRate: number; body: BodyMix; nPh: number; nOr: number; creature: string }
   | TelemetryMessage

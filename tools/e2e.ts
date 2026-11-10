@@ -344,6 +344,24 @@ async function drums() {
     // @ts-expect-error debug handle
     return window.__chimeraEngine?.latestDrums?.last[1] === -1;
   });
+  await page.getByLabel("Classic groove").selectOption({ label: "Reggae one drop" });
+  await page.getByRole("button", { name: "Add bar", exact: true }).click();
+  const addedHit = page.getByRole("button", { name: "Ride, bar 2, beat 1", exact: true });
+  await addedHit.click();
+  await page.getByRole("button", { name: "Play score", exact: true }).click();
+  await page.waitForFunction(() => {
+    const track = document.querySelector(".drum-track");
+    // @ts-expect-error debug handle
+    const last = window.__chimeraEngine?.latestDrums?.last;
+    return track && track.scrollLeft > 0 && last?.[7] >= 0 && last[0] === last[1];
+  });
+  await page.getByRole("radio", { name: "Guitar", exact: true }).click();
+  await page.getByRole("radio", { name: "Drums", exact: true }).click();
+  await page.waitForFunction(() => {
+    // @ts-expect-error debug handle
+    return window.__chimeraEngine?.latestDrums?.last.every((time: number) => time < 0);
+  });
+  if (await addedHit.getAttribute("aria-pressed") !== "true") errors.push("[drums] edited score was lost");
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth))
     errors.push("[drums] horizontal overflow");
   await page.screenshot({ path: `${outDir}/mobile-drums.png`, fullPage: true });

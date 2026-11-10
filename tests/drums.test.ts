@@ -61,3 +61,22 @@ test("constrained sticks approach the struck surfaces across the supported groov
     x.engine_free(h);
   }
 });
+
+test("layered score hits sound at the same sample and stop clears future hits", () => {
+  type X = { memory: WebAssembly.Memory } & Record<string, (...args: number[]) => number>;
+  const x = new WebAssembly.Instance(wasmModule, {}).exports as X;
+  const h = x.engine_new(48000);
+  x.engine_guitar(h, 0, 1, 0, 0);
+  x.engine_guitar(h, 8, 1, .5, 0);
+  const tele = () => readDrumTelemetry(x.memory.buffer, x.engine_drum_telemetry(h));
+  x.engine_drum_score_hit(h, 5, .6, .02);
+  x.engine_drum_score_hit(h, 6, .8, .02); // Hi-hat and crash share the manual strike hand.
+  x.engine_drum_score_hit(h, 1, .8, .04);
+  expect(tele().next.slice(5, 7)).toEqual([.02, .02]);
+  for (let i = 0; i < 8; i++) x.engine_render(h, 128);
+  expect(tele().last.slice(5, 7)).toEqual([.02, .02]);
+  x.engine_guitar(h, 5, 0, 0, 0);
+  for (let i = 0; i < 8; i++) x.engine_render(h, 128);
+  expect(tele().last[1]).toBe(-1);
+  x.engine_free(h);
+});
