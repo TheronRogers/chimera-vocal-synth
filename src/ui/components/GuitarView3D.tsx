@@ -1,3 +1,4 @@
+import type { PerformerInput } from "./DrummerView.tsx";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { V } from "../colors.ts";
@@ -29,7 +30,7 @@ interface Geometry {
 }
 /** Actual scene projection owns hit tests. A mute never transfers to another string. */
 export function GuitarView3D(
-  { profile, electricBody, bass = false, leftHanded = false, chord, singer = false, drummer = false, pickup = 0, pickupPosition = .86, strumPosition = .8, fingerstyle = false, onEngage, onRelease }: {
+  { profile, electricBody, bass = false, leftHanded = false, chord, singer = false, drummer = false, pickup = 0, pickupPosition = .86, strumPosition = .8, fingerstyle = false, playback, onEngage, onRelease }: {
     profile: GuitarBodyProfile;
     electricBody?: ElectricBodyProfile;
     bass?: boolean;
@@ -41,13 +42,14 @@ export function GuitarView3D(
     pickupPosition?: number;
     strumPosition?: number;
     fingerstyle?: boolean;
+    playback?: PerformerInput;
     onEngage: (id: string, i: number) => void;
     onRelease: (id: string) => void;
   },
 ) {
   const ref = useRef<HTMLCanvasElement>(null),
-    live = useRef({ chord, singer, drummer, pickup, pickupPosition, strumPosition, fingerstyle, onEngage, onRelease });
-  live.current = { chord, singer, drummer, pickup, pickupPosition, strumPosition, fingerstyle, onEngage, onRelease };
+    live = useRef({ chord, singer, drummer, pickup, pickupPosition, strumPosition, fingerstyle, playback, onEngage, onRelease });
+  live.current = { chord, singer, drummer, pickup, pickupPosition, strumPosition, fingerstyle, playback, onEngage, onRelease };
   const model = useModel();
   const action = useRef<(back: boolean) => void>(() => {});
   const [failed, setFailed] = useState(false);
@@ -363,6 +365,7 @@ export function GuitarView3D(
     const ray = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     function down(e: PointerEvent) {
+      if (live.current.playback) return;
       const r = canvas.getBoundingClientRect();
       pointer.set(
         (e.clientX - r.left) / r.width * 2 - 1,
@@ -408,6 +411,13 @@ export function GuitarView3D(
     let previousDrummer = drummer;
     let lastFrame = performance.now();
     function frame() {
+      if (live.current.playback && previousWidth) {
+        const bounds = canvas.getBoundingClientRect();
+        if (bounds.bottom < 0 || bounds.top > innerHeight) {
+          raf = requestAnimationFrame(frame);
+          return;
+        }
+      }
       const now = performance.now(), frameDt = Math.min(.1, (now - lastFrame) / 1000);
       lastFrame = now;
       const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -430,7 +440,8 @@ export function GuitarView3D(
           if (!previousWidth || (w < 600) !== (previousWidth < 600)) home(false);
           previousWidth = w;
         }
-        const t = engine.latestGuitar;
+        const staged = live.current.playback?.();
+        const t = live.current.playback ? staged?.guitar : engine.latestGuitar;
         if (live.current.drummer && !bandDrummer) {
           const kit = new Drummer();
           const performer = new Performer();
@@ -518,7 +529,7 @@ export function GuitarView3D(
         const bridgeMotion = (t?.bridge ?? 0) * 12;
         bridge.position.z = .008 + bridgeMotion;
         saddle.position.z = .019 + bridgeMotion;
-        const guitarClock = (t?.clock ?? 0) + Math.min(.016, Math.max(0, (now - engine.latestGuitarAt) / 1000));
+        const guitarClock = staged?.time ?? ((t?.clock ?? 0) + Math.min(.016, Math.max(0, (now - engine.latestGuitarAt) / 1000)));
         const guideX = g.scale * live.current.strumPosition;
         strumGuide.position.set(guideX, 0, .008);
         strumGuide.scale.y = sy(5, guideX) * 2 + .012;
@@ -564,9 +575,9 @@ export function GuitarView3D(
         pickPositions.needsUpdate=true;
         {
           const st = useStore.getState();
-          const tele = live.current.singer && engine.latest && sameBody(engine.latest.body, st.body) ? engine.latest : null;
-          const artic = tele ? VoiceModel.articFromArray(tele.t.artic) : st.artic;
-          const syllable = live.current.singer ? sungNow()?.text ?? null : null;
+          const tele = !live.current.playback && live.current.singer && engine.latest && sameBody(engine.latest.body, st.body) ? engine.latest : null;
+          const artic = staged?.artic ? VoiceModel.articFromArray(staged.artic) : tele ? VoiceModel.articFromArray(tele.t.artic) : st.artic;
+          const syllable = live.current.playback ? staged?.syllable ?? null : live.current.singer ? sungNow()?.text ?? null : null;
           if (model.current) performer.update(model.current, artic, tele, st.view, camera, w, h, frameDt, syllable);
           if (model.current && bandDrummer?.kit.group.visible) {
             const { kit, performer } = bandDrummer;
@@ -613,7 +624,7 @@ export function GuitarView3D(
   }, [model, profile, electricBody, bass, leftHanded]);
   return (
     <>
-      <div className="guitar-view-controls">
+      {!playback && <div className="guitar-view-controls">
         <button className="chip" onClick={() => action.current(false)}>
           Reset view
         </button>
@@ -628,12 +639,12 @@ export function GuitarView3D(
           />{" "}
           Show body vibration
         </label>}
-      </div>
+      </div>}
       <div className="guitar-canvas">
         <canvas
           ref={ref}
           role="img"
-          aria-label={drummer ? (singer ? "3D singer and guitarist as one performer with a drummer and rock drum set. Drag to orbit; hold a string near the bridge to mute." : "3D guitarist with a drummer and rock drum set. Drag to orbit; hold a string near the bridge to mute.") : singer ? "3D singer and guitarist as one performer. Drag to orbit; hold a string near the bridge to mute." : `3D guitarist with ${bass ? "an electric bass" : electricBody ? electricBody.name + " electric guitar" : "an acoustic guitar"}. Drag to orbit; hold a string near the bridge to mute.`}
+          aria-label={playback ? `3D ${bass ? "bassist" : "guitarist"}${singer ? " and singer" : ""}. Drag to orbit.` : drummer ? (singer ? "3D singer and guitarist as one performer with a drummer and rock drum set. Drag to orbit; hold a string near the bridge to mute." : "3D guitarist with a drummer and rock drum set. Drag to orbit; hold a string near the bridge to mute.") : singer ? "3D singer and guitarist as one performer. Drag to orbit; hold a string near the bridge to mute." : `3D guitarist with ${bass ? "an electric bass" : electricBody ? electricBody.name + " electric guitar" : "an acoustic guitar"}. Drag to orbit; hold a string near the bridge to mute.`}
         />
       </div>
       {failed && (

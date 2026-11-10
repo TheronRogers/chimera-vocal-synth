@@ -1,3 +1,4 @@
+import { StagePanel } from "./components/StagePanel.tsx";
 import { DrumsPanel } from "./components/DrumsPanel.tsx";
 import { GuitarPanel } from "./components/GuitarPanel.tsx";
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -63,6 +64,7 @@ function TopBar() {
         options={[
           { value: "guitar", label: "Guitar" },
           { value: "drums", label: "Drums" },
+          { value: "stage", label: "Stage" },
           { value: "play", label: "Play" },
           { value: "speak", label: "Speak" },
           { value: "sing", label: "Sing" },
@@ -70,7 +72,7 @@ function TopBar() {
           { value: "beatbox", label: "Beatbox" },
         ]}
       />
-      {mode !== "bestiary" && mode !== "guitar" && mode !== "drums" && (
+      {mode !== "bestiary" && mode !== "guitar" && mode !== "drums" && mode !== "stage" && (
         <div className="body-control">
           <Segmented<BodyName>
             label="Body"
@@ -235,8 +237,8 @@ function Wall() {
     <div className={`app mode-${mode}`}>
       <TopBar />
       <main className={`wall wall-${mode}`}>
-        {mode === "guitar" ? <GuitarPanel /> : mode === "drums" ? <DrumsPanel /> : <LeftScreen />}
-        {mode === "guitar" || mode === "drums" ? null : mode === "play" ? <PlayRight /> : mode === "speak" ? <SpeakRight /> : mode === "sing" ? <SingRight /> : mode === "beatbox" ? <BeatboxRight /> : <BestiaryRight />}
+        {mode === "guitar" ? <GuitarPanel /> : mode === "drums" ? <DrumsPanel /> : mode === "stage" ? <StagePanel /> : <LeftScreen />}
+        {mode === "guitar" || mode === "drums" || mode === "stage" ? null : mode === "play" ? <PlayRight /> : mode === "speak" ? <SpeakRight /> : mode === "sing" ? <SingRight /> : mode === "beatbox" ? <BeatboxRight /> : <BestiaryRight />}
       </main>
     </div>
   );

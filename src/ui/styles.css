@@ -2981,3 +2981,27 @@ input[type="range"]::-moz-range-thumb {
   font-family: monospace;
   overflow: auto;
 }
+
+.wall-stage { grid-template-columns: minmax(0, 1fr); }
+.stage-workspace { display: grid; gap: 16px; padding: 18px; }
+.stage-workspace h2, .stage-workspace p { margin: 0; }
+.stage-cast {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid #435868;
+  background: radial-gradient(ellipse at top, #35404d, #10171e 75%);
+}
+.stage-cast figure { min-width: 0; margin: 0; text-align: center; overflow-wrap: anywhere; }
+.stage-parts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); gap: 12px; }
+.stage-parts fieldset { min-width: 0; display: grid; align-content: start; gap: 9px; }
+.stage-parts label { display: grid; gap: 4px; }
+.stage-parts label:has(input[type="checkbox"]) { display: flex; align-items: center; }
+.stage-parts input, .stage-parts select { min-width: 0; }
+.stage-workspace > button { justify-self: start; }
+.stage-parts textarea { min-width: 0; }
+
+.stage-cast .guitar-canvas { height: clamp(235px, 32vw, 360px); min-height: 0; }
+.stage-cast figcaption { padding: 8px 0; }
+@media (max-width: 640px) { .stage-cast { grid-template-columns: minmax(0, 1fr); } }

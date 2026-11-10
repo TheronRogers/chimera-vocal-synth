@@ -16,6 +16,9 @@ for tests and the `chimera` CLI.
   Choose **Electric bass** for four strings tuned E1–A1–D2–G2 and four-row tab. **Left-handed**
   reverses the instrument and hands for every guitar and bass.
 - **Drums**: a seated 3D drummer with eight playable rock-kit surfaces and a continuous hi-hat pedal.
+- **Stage**: arrange up to twelve musicians with individual vocal melodies and instrument parts.
+  The original Merseybeat demo *The Morning Comes Around* has three voices, two guitars,
+  a left-handed bass and drums. Select **Play performance** to hear the cast together.
 - **Play**: drag the tongue, lips and jaw in a live cutaway of the head; vowel pad, encoders,
   computer keyboard and Web MIDI.
 - **Speak**: English text (CMUdict with a letter-to-sound fallback) or IPA, turned into

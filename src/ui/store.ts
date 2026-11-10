@@ -11,7 +11,7 @@ import { stopSpeaking } from "./speech.ts";
 import { connectMidi, disconnectMidi, type MidiStatus } from "./midi.ts";
 import { stopGuitar } from "./guitar.ts";
 
-export type Mode = "play" | "speak" | "sing" | "bestiary" | "beatbox" | "guitar" | "drums";
+export type Mode = "play" | "speak" | "sing" | "bestiary" | "beatbox" | "guitar" | "drums" | "stage";
 
 export interface BeatState {
   steps: (BeatStep | null)[];
@@ -101,10 +101,11 @@ export function creatureKeyHz(midi: number, p: Pick<ParamDef, "min" | "max">): n
 }
 
 const instrumentMode = (mode: Mode) => mode === "guitar" || mode === "drums";
+const performanceMode = (mode: Mode) => instrumentMode(mode) || mode === "stage";
 
 function updateGate(s: { hold: boolean; heldNotes: number[]; mode: Mode; keyCall: string | null }) {
   // keys that trigger calls leave the breath to the call; sung notes breathe by themselves
-  const keysBreathe = !(s.mode === "bestiary" && s.keyCall) && s.mode !== "sing" && !instrumentMode(s.mode);
+  const keysBreathe = !(s.mode === "bestiary" && s.keyCall) && s.mode !== "sing" && !performanceMode(s.mode);
   engine.gate(s.hold || (keysBreathe && s.heldNotes.length > 0) ? 1 : 0);
 }
 
@@ -139,7 +140,7 @@ export const useStore = create<State>((set, get) => ({
   setMode: (m) => {
     const prev = get().mode;
     if (prev === m) return;
-    if (instrumentMode(prev) || instrumentMode(m)) {
+    if (performanceMode(prev) || performanceMode(m)) {
       stopGuitar();
       engine.guitar(0, instrumentMode(m) ? 1 : 0);
       engine.latestGuitar = null;

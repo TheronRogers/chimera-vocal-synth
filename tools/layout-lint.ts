@@ -47,7 +47,7 @@ export const VIEWPORTS: { w: number; h: number }[] = [
   { w: 1920, h: 1080 },
   { w: 2560, h: 1440 },
 ];
-const MODES = ["play", "speak", "sing", "bestiary", "beatbox", "guitar", "drums"] as const;
+const MODES = ["play", "speak", "sing", "bestiary", "beatbox", "guitar", "drums", "stage"] as const;
 
 interface Problem {
   kind: string;

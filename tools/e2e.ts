@@ -415,6 +415,75 @@ async function drums() {
   await page.close();
 }
 
+async function stage() {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  page.on("pageerror", e => errors.push(`[stage] ${e.message}`));
+  page.on("console", m => { if (m.type() === "error") errors.push(`[stage] ${m.text()}`); });
+  await page.addInitScript(() => {
+    const meters: AnalyserNode[] = [];
+    Object.assign(window, { stageMeters: meters });
+    const create = AudioContext.prototype.createBufferSource;
+    AudioContext.prototype.createBufferSource = function () {
+      const source = create.call(this);
+      const meter = this.createAnalyser();
+      source.connect(meter);
+      meters.push(meter);
+      return source;
+    };
+  });
+  await page.goto(url, { waitUntil: "networkidle" });
+  await page.getByRole("radio", { name: "Stage", exact: true }).click();
+  await page.getByRole("button", { name: "Add musician" }).click();
+  if (await page.locator(".stage-cast figure").count() !== 5) errors.push("[stage] musician did not appear");
+  await page.getByRole("button", { name: "Remove musician" }).last().click();
+  if (await page.locator(".stage-cast canvas").count() !== 4) errors.push("[stage] missing shared 3D rigs");
+  const play = page.getByRole("button", { name: "Play performance" });
+  const stop = page.getByRole("button", { name: "Stop performance" });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await play.click();
+    await page.waitForFunction(index => {
+      const meter = (window as Window & { stageMeters?: AnalyserNode[] }).stageMeters?.[index];
+      if (!meter) return false;
+      const samples = new Float32Array(meter.fftSize);
+      meter.getFloatTimeDomainData(samples);
+      return samples.some(sample => Math.abs(sample) > .001);
+    }, attempt, { timeout: 20000 }).catch(async () => {
+      errors.push(`[stage] playback ${attempt + 1} was silent: ${(await page.getByRole("alert").allTextContents()).join(" ")}`);
+    });
+    if (attempt === 0 && await stop.count()) await stop.click();
+  }
+  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth))
+    errors.push("[stage] horizontal overflow");
+  await page.screenshot({ path: `${outDir}/mobile-stage.png`, fullPage: true });
+  if (await stop.count()) await stop.click();
+
+  await page.getByRole("radio", { name: "Guitar", exact: true }).click();
+  await page.getByLabel("Guitar sound").selectOption("bass");
+  await page.getByRole("button", { name: "Start guitar audio" }).click();
+  await page.getByLabel("Left-handed", { exact: true }).check();
+  const bass = page.locator(".guitar-canvas canvas");
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>(".guitar-canvas canvas");
+    return JSON.parse(canvas?.dataset.mutePoints ?? "[]").length === 4;
+  });
+  const [x, y] = await bass.evaluate(c => JSON.parse((c as HTMLCanvasElement).dataset.mutePoints!)[0]);
+  const box = (await bass.boundingBox())!;
+  await page.mouse.move(box.x + x, box.y + y);
+  await page.mouse.down();
+  await page.waitForFunction(() => {
+    // @ts-expect-error debug handle
+    return window.__chimeraEngine?.latestGuitar?.strings[0].muted;
+  }, undefined, { timeout: 4000 }).catch(() => errors.push("[bass] mirrored touch missed the E string"));
+  await page.mouse.up();
+  await page.getByRole("button", { name: "Play tab", exact: true }).click();
+  await page.waitForFunction(() => {
+    // @ts-expect-error debug handle
+    return window.__chimeraEngine?.latestGuitar?.rms > .0001;
+  }, undefined, { timeout: 4000 }).catch(() => errors.push("[bass] tab did not play"));
+  await page.close();
+}
+
+await stage();
 await drums();
 await guitar({width:1440,height:980},"desktop");
 await guitar({width:390,height:844},"mobile");
